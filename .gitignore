@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Large generated outputs — regenerate by running the pipeline
+output/labse_embeddings.npy
+output/flood_126_enriched.csv
+output/cross_lingual_pairs.csv
+output/topic_model_results.csv
+logs/
+
+# Keep the visualizations folder (PNGs + interpretations.md)
+!output/visualizations/
+
+# Data CSVs (large — share via team storage)
+data/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
