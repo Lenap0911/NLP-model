@@ -6,18 +6,12 @@ __pycache__/
 venv/
 env/
 
-# Large generated outputs — regenerate by running the pipeline
+# Embeddings: 227 MB — exceeds GitHub's 100 MB hard limit, cannot be committed
+# Regenerate with: python run_nlp_pipeline.py (skip-embed flag reuses this once generated)
 output/labse_embeddings.npy
-output/flood_126_enriched.csv
-output/cross_lingual_pairs.csv
-output/topic_model_results.csv
+
+# Logs: machine-specific runtime noise, changes every run
 logs/
-
-# Keep the visualizations folder (PNGs + interpretations.md)
-!output/visualizations/
-
-# Data CSVs (large — share via team storage)
-data/*.csv
 
 # OS
 .DS_Store
