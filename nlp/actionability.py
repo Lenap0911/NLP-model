@@ -129,6 +129,48 @@ def assign_temporal_phase(pub_date, flood_date) -> str:
     except Exception:
         return 'unknown'
 
+def count_verb_tenses(text: str, lang: str) -> dict:
+    """
+    Identifies and counts verb tenses (past, present, future) using SpaCy.
+    Accounts for Spanish morphological inflection vs English auxiliary construction.
+    """
+    nlp = _get_spacy(lang)
+    if nlp is None:
+        return {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
+
+    # Note: Slicing by character limit (text[:1000]) is a flawed approach. 
+    # It arbitrarily cuts sentences and words in half, which breaks dependency 
+    # parsing and morphological tagging at the boundary. 
+    # It is kept here to match the architecture of your existing SRL function, 
+    # but you should rewrite your preprocessing to truncate by sentence boundaries.
+    doc = nlp(text[:1000]) 
+    
+    counts = {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
+    
+    for token in doc:
+        # We only care about main verbs and auxiliaries
+        if token.pos_ in ('VERB', 'AUX'):
+            morph_tense = token.morph.get('Tense')
+            
+            if morph_tense:
+                if 'Past' in morph_tense:
+                    counts['past_tense'] += 1
+                elif 'Pres' in morph_tense:
+                    # Intercept English future auxiliary 'will' / 'shall' 
+                    # which SpaCy often tags as Present or Finite.
+                    if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
+                        counts['future_tense'] += 1
+                    else:
+                        counts['present_tense'] += 1
+                elif 'Fut' in morph_tense: 
+                    # Natively captures Spanish future tense inflection
+                    counts['future_tense'] += 1
+            else:
+                # Failsafe for English future auxiliaries lacking explicit Tense tags
+                if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
+                     counts['future_tense'] += 1
+                     
+    return counts
 
 def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -136,11 +178,12 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     adds columns: imperative_score, short_term_score, long_term_score,
                   spatial_score, actionability_score,
                   has_agent, has_action, has_location, srl_complete,
+                  past_tense, present_tense, future_tense, past_tense_ratio,
                   temporal_phase
     """
     logger.info('scoring actionability...')
 
-    # keyword-based scoring (fast, no model needed)
+    # 1. Keyword-based scoring (fast, no model needed)
     kw_scores = df.apply(
         lambda r: score_actionability_keywords(r['clean_text'], r['language']),
         axis=1,
@@ -148,7 +191,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     )
     df = pd.concat([df, kw_scores], axis=1)
 
-    # semantic role labelling features (requires spacy)
+    # 2. Semantic role labelling features (requires spacy)
     logger.info('extracting SRL features...')
     srl_feats = df.apply(
         lambda r: extract_srl_features(r['clean_text'], r['language']),
@@ -157,10 +200,34 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     )
     df = pd.concat([df, srl_feats], axis=1)
 
-    # temporal phase assignment
-    # uses flood_date column if present; otherwise falls back to
-    # config.FLOOD_REFERENCE_DATE (set to the flood onset date for the dataset)
-    # pub_date from the CSV is compared against the reference date
+    # 3. Verb tense extraction
+    logger.info('extracting verb tenses...')
+    tense_feats = df.apply(
+        lambda r: count_verb_tenses(r['clean_text'], r['language']),
+        axis=1,
+        result_type='expand'
+    )
+    df = pd.concat([df, tense_feats], axis=1)
+
+    # 4. Integrate Past Tense Penalty into Actionability Score
+    logger.info('applying past tense penalty to actionability score...')
+    
+    def calculate_penalty(row):
+        total_verbs = row['past_tense'] + row['present_tense'] + row['future_tense']
+        if total_verbs == 0:
+            return 0.0
+        return row['past_tense'] / total_verbs
+
+    df['past_tense_ratio'] = df.apply(calculate_penalty, axis=1)
+    
+    # Weight for the past tense penalty (adjust this 0.15 based on your data distribution)
+    penalty_weight = 0.15 
+    df['actionability_score'] = df['actionability_score'] - (penalty_weight * df['past_tense_ratio'])
+    
+    # Ensure score doesn't drop below zero and round it
+    df['actionability_score'] = df['actionability_score'].clip(lower=0).round(4)
+
+    # 5. Temporal phase assignment
     if 'flood_date' in df.columns:
         logger.info('assigning temporal phases using flood_date column...')
         df['temporal_phase'] = df.apply(
