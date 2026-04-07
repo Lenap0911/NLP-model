@@ -4,7 +4,7 @@
 #   Sit et al. (2020): UMAP dimensionality reduction + DBSCAN for spatial clusters
 #   Dujardin et al. (2024): BERTopic for temporal-spatial topic discovery
 #   Xu & Qiang (2022): distance-decay in information diffusion — clusters reflect proximity
-
+"""
 import logging
 import importlib
 
@@ -16,6 +16,25 @@ from sklearn.metrics import silhouette_score
 config = importlib.import_module('config.nlp_config')
 logger = logging.getLogger(__name__)
 
+"""
+
+
+import os
+import sys
+import logging
+import importlib
+
+# Ensure project root is on sys.path when running this file directly:
+# python nlp/clustering.py
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import numpy as np
+import pandas as pd
+from sklearn.cluster import DBSCAN
+from sklearn.metrics import silhouette_score
+
+config = importlib.import_module('config.nlp_config')
+logger = logging.getLogger(__name__)
 
 def reduce_with_umap(embeddings: np.ndarray, n_components: int = None) -> np.ndarray:
     """

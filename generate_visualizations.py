@@ -28,11 +28,39 @@ os.makedirs(VIZ_DIR, exist_ok=True)
 ENRICHED  = os.path.join(OUT_DIR, 'flood_126_enriched.csv')
 TOPICS    = os.path.join(OUT_DIR, 'topic_model_results.csv')
 EMBEDDINGS = os.path.join(OUT_DIR, 'labse_embeddings.npy')
-
+"""
 # ── palette ───────────────────────────────────────────────────────────────────
 CLUSTER_COLORS = {-1: '#aaaaaa', 0: '#4e79a7', 1: '#f28e2b', 2: '#59a14f'}
 CLUSTER_LABELS = {-1: 'Noise (outliers)', 0: 'Cluster 0: Institutional response',
                   1: 'Cluster 1: Human impact & deaths', 2: 'Cluster 2: Transport disruption'}
+"""
+
+# ── palette ───────────────────────────────────────────────────────────────────
+# NOTE: DBSCAN cluster ids are not fixed (can be 0..N). Build mapping after loading df.
+NOISE_COLOR = '#aaaaaa'
+
+def build_cluster_palette(df: pd.DataFrame):
+    cluster_ids = sorted(set(df['umap_cluster'].dropna().astype(int).tolist()))
+    # Ensure noise is present first (if exists)
+    cluster_ids_no_noise = [c for c in cluster_ids if c != -1]
+
+    # Use a stable seaborn palette for however many clusters exist
+    palette = sns.color_palette('tab10', n_colors=max(1, len(cluster_ids_no_noise)))
+
+    colors = {}
+    labels = {}
+
+    # Noise
+    colors[-1] = NOISE_COLOR
+    labels[-1] = 'Noise (outliers)'
+
+    # Real clusters
+    for i, cid in enumerate(cluster_ids_no_noise):
+        colors[cid] = matplotlib.colors.to_hex(palette[i % len(palette)])
+        labels[cid] = f'Cluster {cid}'
+
+    return colors, labels
+
 TOPIC_COLORS   = {'0': '#e15759', '1': '#76b7b2', '2': '#edc948', '-1': '#cccccc'}
 
 plt.rcParams.update({'font.family': 'DejaVu Sans', 'axes.spines.top': False,
@@ -504,7 +532,9 @@ if __name__ == '__main__':
     df         = pd.read_csv(ENRICHED)
     topics_df  = pd.read_csv(TOPICS)
     embeddings = np.load(EMBEDDINGS)
-
+    
+# Build cluster color/label maps from the actual data (prevents KeyError)
+    CLUSTER_COLORS, CLUSTER_LABELS = build_cluster_palette(df)
     print('generating visualizations...')
     plot_flowchart()
     plot_actionability(df)
