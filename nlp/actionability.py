@@ -20,6 +20,33 @@ logger = logging.getLogger(__name__)
 # loading spacy models lazily — only once per language
 _spacy_models = {}
 
+# Maximum character count for spacy processing — truncated at sentence boundary
+# to avoid splitting tokens mid-word (the original text[:1000] approach)
+_SPACY_CHAR_LIMIT = 1200
+
+
+def _truncate_at_sentence(text: str, max_chars: int = _SPACY_CHAR_LIMIT) -> str:
+    """
+    Truncate text to at most max_chars characters, but always at a sentence boundary.
+    Avoids the text[:1000] antipattern that cuts mid-sentence and breaks dependency
+    parsing and morphological tagging at the boundary.
+    Falls back to hard truncation if no sentence boundary is found within limit.
+    """
+    if len(text) <= max_chars:
+        return text
+    # Find the last sentence-ending punctuation before the limit
+    window = text[:max_chars]
+    last_end = max(
+        window.rfind('. '),
+        window.rfind('! '),
+        window.rfind('? '),
+        window.rfind('.\n'),
+    )
+    if last_end > max_chars // 2:
+        return text[:last_end + 1].strip()
+    # No good boundary found — fall back to hard cut at max_chars
+    return window
+
 
 def _get_spacy(lang: str):
     """loading spacy model for given language, caching after first load"""
@@ -89,7 +116,7 @@ def extract_srl_features(text: str, lang: str) -> dict:
     if nlp is None:
         return {'has_agent': 0, 'has_action': 0, 'has_location': 0, 'srl_complete': 0}
 
-    doc = nlp(text[:1000])   # 1000 chars sufficient; full text too slow
+    doc = nlp(_truncate_at_sentence(text))
     agents    = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
     actions   = [t for t in doc if t.pos_ == 'VERB' and t.dep_ in ('ROOT', 'ccomp', 'xcomp')]
     locations = [t for t in doc if t.ent_type_ in ('GPE', 'LOC', 'FAC')]
@@ -104,6 +131,43 @@ def extract_srl_features(text: str, lang: str) -> dict:
         'has_action':   has_v,
         'has_location': has_l,
         'srl_complete': int(has_a and has_v and has_l),   # Jurafsky: complete role structure
+    }
+
+
+def extract_named_entities(text: str, lang: str) -> dict:
+    """
+    Extract top named entities from the article using spacy NER.
+    Returns:
+        top_locations: JSON-serialisable list of up to 5 unique GPE/LOC/FAC names
+        top_orgs:      JSON-serialisable list of up to 5 unique ORG names
+    These columns are useful for downstream geographic diffusion analysis (Han et al. 2017)
+    and for validating location dictionary coverage.
+    """
+    import json
+    nlp = _get_spacy(lang)
+    if nlp is None:
+        return {'top_locations': json.dumps([]), 'top_orgs': json.dumps([])}
+
+    doc = nlp(_truncate_at_sentence(text))
+    seen_locs: dict[str, int] = {}
+    seen_orgs: dict[str, int] = {}
+
+    for ent in doc.ents:
+        text_norm = ent.text.strip()
+        if not text_norm:
+            continue
+        if ent.label_ in ('GPE', 'LOC', 'FAC'):
+            seen_locs[text_norm] = seen_locs.get(text_norm, 0) + 1
+        elif ent.label_ == 'ORG':
+            seen_orgs[text_norm] = seen_orgs.get(text_norm, 0) + 1
+
+    # Sort by frequency descending, keep top 5
+    top_locs = [k for k, _ in sorted(seen_locs.items(), key=lambda x: -x[1])[:5]]
+    top_orgs = [k for k, _ in sorted(seen_orgs.items(), key=lambda x: -x[1])[:5]]
+
+    return {
+        'top_locations': json.dumps(top_locs, ensure_ascii=False),
+        'top_orgs':      json.dumps(top_orgs, ensure_ascii=False),
     }
 
 
@@ -138,12 +202,7 @@ def count_verb_tenses(text: str, lang: str) -> dict:
     if nlp is None:
         return {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
 
-    # Note: Slicing by character limit (text[:1000]) is a flawed approach. 
-    # It arbitrarily cuts sentences and words in half, which breaks dependency 
-    # parsing and morphological tagging at the boundary. 
-    # It is kept here to match the architecture of your existing SRL function, 
-    # but you should rewrite your preprocessing to truncate by sentence boundaries.
-    doc = nlp(text[:1000]) 
+    doc = nlp(_truncate_at_sentence(text))
     
     counts = {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
     
@@ -200,7 +259,16 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     )
     df = pd.concat([df, srl_feats], axis=1)
 
-    # 3. Verb tense extraction
+    # 3. Named entity extraction (Phase 6c)
+    logger.info('extracting named entities...')
+    ner_feats = df.apply(
+        lambda r: extract_named_entities(r['clean_text'], r['language']),
+        axis=1,
+        result_type='expand'
+    )
+    df = pd.concat([df, ner_feats], axis=1)
+
+    # 4. Verb tense extraction
     logger.info('extracting verb tenses...')
     tense_feats = df.apply(
         lambda r: count_verb_tenses(r['clean_text'], r['language']),
@@ -228,19 +296,39 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     df['actionability_score'] = df['actionability_score'].clip(lower=0).round(4)
 
     # 5. Temporal phase assignment
+    # Priority order:
+    #   1. flood_date column (per-row date — set by stage_08 from flood_crawl.csv)
+    #   2. FLOOD_REFERENCE_DATES dict (per flood_id — multi-event support)
+    #   3. FLOOD_REFERENCE_DATE scalar (single-event fallback)
     if 'flood_date' in df.columns:
-        logger.info('assigning temporal phases using flood_date column...')
+        logger.info('assigning temporal phases using flood_date column (per-row)...')
         df['temporal_phase'] = df.apply(
             lambda r: assign_temporal_phase(r.get('pub_date'), r.get('flood_date')),
             axis=1
         )
+    elif (
+        hasattr(config, 'FLOOD_REFERENCE_DATES')
+        and config.FLOOD_REFERENCE_DATES
+        and 'flood_id' in df.columns
+    ):
+        logger.info('assigning temporal phases using FLOOD_REFERENCE_DATES dict (per flood_id)...')
+        ref_dates = config.FLOOD_REFERENCE_DATES
+
+        def _phase_from_dict(row):
+            fid = row.get('flood_id')
+            ref = ref_dates.get(int(fid)) if fid is not None else None
+            if ref is None:
+                return 'unknown'
+            return assign_temporal_phase(row.get('pub_date'), ref)
+
+        df['temporal_phase'] = df.apply(_phase_from_dict, axis=1)
     elif hasattr(config, 'FLOOD_REFERENCE_DATE') and config.FLOOD_REFERENCE_DATE:
         logger.info(f'assigning temporal phases using FLOOD_REFERENCE_DATE={config.FLOOD_REFERENCE_DATE}...')
         df['temporal_phase'] = df['pub_date'].apply(
             lambda pub: assign_temporal_phase(pub, config.FLOOD_REFERENCE_DATE)
         )
     else:
-        logger.warning('no flood_date column or FLOOD_REFERENCE_DATE set — skipping temporal phase')
+        logger.warning('no flood_date column or FLOOD_REFERENCE_DATE(S) set — skipping temporal phase')
         df['temporal_phase'] = 'unknown'
 
     logger.info('actionability scoring complete')

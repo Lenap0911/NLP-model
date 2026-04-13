@@ -67,9 +67,24 @@ def main(input_path: str = None, skip_embed: bool = False):
     from nlp.embeddings    import run_embeddings, load_embeddings, cross_lingual_similarity
     from nlp.actionability import run_actionability
     from nlp.clustering    import run_clustering
+    from nlp.authority     import run_authority
+    from nlp.framing       import run_framing
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     os.makedirs(config.LOG_DIR, exist_ok=True)
+
+    # Derive output CSV name from input filename so multi-event runs don't
+    # overwrite each other (e.g. flood_65_input.csv -> flood_65_enriched.csv)
+    if input_path:
+        stem = os.path.splitext(os.path.basename(input_path))[0]
+        enriched_name = stem.replace('_input', '') + '_enriched.csv'
+        config.ENRICHED_CSV_PATH = os.path.join(config.OUTPUT_DIR, enriched_name)
+        # Embeddings cache is also input-specific to avoid shape mismatches
+        config.EMBEDDINGS_PATH = os.path.join(
+            config.OUTPUT_DIR, stem.replace('_input', '') + '_embeddings.npy'
+        )
+    logger.info(f'enriched output  -> {config.ENRICHED_CSV_PATH}')
+    logger.info(f'embeddings cache -> {config.EMBEDDINGS_PATH}')
 
     # ── step 1: preprocessing ─────────────────────────────────────────────────
     logger.info('=== STEP 1: PREPROCESSING ===')
@@ -98,12 +113,20 @@ def main(input_path: str = None, skip_embed: bool = False):
     logger.info('=== STEP 4: ACTIONABILITY SCORING ===')
     df = run_actionability(df)
 
-    # ── step 5: clustering + topic modelling ──────────────────────────────────
-    logger.info('=== STEP 5: CLUSTERING + TOPIC MODELLING ===')
+    # ── step 5: source authority scoring ─────────────────────────────────────
+    logger.info('=== STEP 5: SOURCE AUTHORITY SCORING ===')
+    df = run_authority(df)
+
+    # ── step 6: frame classification ──────────────────────────────────────────
+    logger.info('=== STEP 6: FRAME CLASSIFICATION ===')
+    df = run_framing(df)
+
+    # ── step 7: clustering + topic modelling ──────────────────────────────────
+    logger.info('=== STEP 7: CLUSTERING + TOPIC MODELLING ===')
     df = run_clustering(df, embeddings)
 
-    # ── step 6: saving enriched dataset ──────────────────────────────────────
-    logger.info('=== STEP 6: SAVING ENRICHED DATASET ===')
+    # ── step 8: saving enriched dataset ──────────────────────────────────────
+    logger.info('=== STEP 8: SAVING ENRICHED DATASET ===')
     df.to_csv(config.ENRICHED_CSV_PATH, index=False)
     logger.info(f'enriched dataset saved -> {config.ENRICHED_CSV_PATH}')
     logger.info(f'final shape: {df.shape}')
