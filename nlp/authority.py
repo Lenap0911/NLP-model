@@ -107,7 +107,7 @@ def classify_scope(domain: str, country_iso: str = None) -> str:
     Return scope label for a given domain: 'international', 'national', 'local'.
     country_iso is the ISO code of the flood event (to look up national domain list).
     """
-    domain = domain.lower().lstrip('www.')
+    domain = domain.lower().removeprefix('www.')
     if domain in _INTERNATIONAL_DOMAINS:
         return 'international'
     if country_iso and domain in _NATIONAL_DOMAINS.get(country_iso, frozenset()):
@@ -127,7 +127,7 @@ def classify_credibility(domain: str) -> int:
     Tier 2: government / educational / NGO domains
     Tier 3: unknown
     """
-    domain = domain.lower().lstrip('www.')
+    domain = domain.lower().removeprefix('www.')
     if domain in _TIER1_DOMAINS:
         return 1
     if _TIER2_DOMAINS_RE.search(domain):

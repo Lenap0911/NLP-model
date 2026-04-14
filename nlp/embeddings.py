@@ -7,6 +7,7 @@
 
 import logging
 import importlib
+import os
 
 import numpy as np
 import pandas as pd
@@ -97,7 +98,7 @@ def load_embedding_cache(path: str = None) -> tuple[np.ndarray, list]:
     """
     base_path = path or config.EMBEDDINGS_PATH
     npz_path = str(base_path).replace('.npy', '_cache.npz')
-    if not __import__('os').path.exists(npz_path):
+    if not os.path.exists(npz_path):
         logger.info(f'no embedding cache found at {npz_path}')
         return None, []
     data = np.load(npz_path, allow_pickle=True)

@@ -104,9 +104,9 @@ def main(input_path: str = None, skip_embed: bool = False):
     # ── step 3: cross-lingual similarity (en ↔ es) ────────────────────────────
     logger.info('=== STEP 3: CROSS-LINGUAL SIMILARITY ===')
     cross_lingual_pairs = cross_lingual_similarity(embeddings, df)
-    cross_lingual_pairs.to_csv(
-        os.path.join(config.OUTPUT_DIR, 'cross_lingual_pairs.csv'), index=False
-    )
+    pairs_stem = os.path.splitext(os.path.basename(config.ENRICHED_CSV_PATH))[0]
+    pairs_path = os.path.join(config.OUTPUT_DIR, f'{pairs_stem}_cross_lingual_pairs.csv')
+    cross_lingual_pairs.to_csv(pairs_path, index=False)
     logger.info(f'saved {len(cross_lingual_pairs)} cross-lingual pairs')
 
     # ── step 4: actionability scoring ────────────────────────────────────────
