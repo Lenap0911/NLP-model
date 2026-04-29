@@ -112,25 +112,12 @@ def extract_srl_features(text: str, lang: str) -> dict:
     which is sufficient for the actionability signal we need:
     checking if a flood-related action verb has a spatial theme (LOCATION)
     """
-    nlp = _get_spacy(lang)
-    if nlp is None:
-        return {'has_agent': 0, 'has_action': 0, 'has_location': 0, 'srl_complete': 0}
-
-    doc = nlp(_truncate_at_sentence(text))
-    agents    = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
-    actions   = [t for t in doc if t.pos_ == 'VERB' and t.dep_ in ('ROOT', 'ccomp', 'xcomp')]
-    locations = [t for t in doc if t.ent_type_ in ('GPE', 'LOC', 'FAC')]
-
-    # srl_complete = 1 if article has all three components → most likely to be actionable
-    has_a = int(len(agents) > 0)
-    has_v = int(len(actions) > 0)
-    has_l = int(len(locations) > 0)
-
+    feats = _extract_spacy_features(text, lang)
     return {
-        'has_agent':    has_a,
-        'has_action':   has_v,
-        'has_location': has_l,
-        'srl_complete': int(has_a and has_v and has_l),   # Jurafsky: complete role structure
+        'has_agent': feats['has_agent'],
+        'has_action': feats['has_action'],
+        'has_location': feats['has_location'],
+        'srl_complete': feats['srl_complete'],
     }
 
 
@@ -143,31 +130,10 @@ def extract_named_entities(text: str, lang: str) -> dict:
     These columns are useful for downstream geographic diffusion analysis (Han et al. 2017)
     and for validating location dictionary coverage.
     """
-    import json
-    nlp = _get_spacy(lang)
-    if nlp is None:
-        return {'top_locations': json.dumps([]), 'top_orgs': json.dumps([])}
-
-    doc = nlp(_truncate_at_sentence(text))
-    seen_locs: dict[str, int] = {}
-    seen_orgs: dict[str, int] = {}
-
-    for ent in doc.ents:
-        text_norm = ent.text.strip()
-        if not text_norm:
-            continue
-        if ent.label_ in ('GPE', 'LOC', 'FAC'):
-            seen_locs[text_norm] = seen_locs.get(text_norm, 0) + 1
-        elif ent.label_ == 'ORG':
-            seen_orgs[text_norm] = seen_orgs.get(text_norm, 0) + 1
-
-    # Sort by frequency descending, keep top 5
-    top_locs = [k for k, _ in sorted(seen_locs.items(), key=lambda x: -x[1])[:5]]
-    top_orgs = [k for k, _ in sorted(seen_orgs.items(), key=lambda x: -x[1])[:5]]
-
+    feats = _extract_spacy_features(text, lang)
     return {
-        'top_locations': json.dumps(top_locs, ensure_ascii=False),
-        'top_orgs':      json.dumps(top_orgs, ensure_ascii=False),
+        'top_locations': feats['top_locations'],
+        'top_orgs': feats['top_orgs'],
     }
 
 
@@ -198,38 +164,92 @@ def count_verb_tenses(text: str, lang: str) -> dict:
     Identifies and counts verb tenses (past, present, future) using SpaCy.
     Accounts for Spanish morphological inflection vs English auxiliary construction.
     """
+    feats = _extract_spacy_features(text, lang)
+    return {
+        'past_tense': feats['past_tense'],
+        'present_tense': feats['present_tense'],
+        'future_tense': feats['future_tense'],
+    }
+
+
+def _extract_spacy_features(text: str, lang: str) -> dict:
+    """Parse text once with spaCy and extract SRL/NER/tense features from the same Doc.
+
+    This avoids running spaCy 3x per article (SRL + NER + tense), which is a major
+    bottleneck on larger datasets.
+    """
+    import json
+
     nlp = _get_spacy(lang)
     if nlp is None:
-        return {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
+        return {
+            # SRL-lite
+            'has_agent': 0,
+            'has_action': 0,
+            'has_location': 0,
+            'srl_complete': 0,
+            # NER
+            'top_locations': json.dumps([]),
+            'top_orgs': json.dumps([]),
+            # tenses
+            'past_tense': 0,
+            'present_tense': 0,
+            'future_tense': 0,
+        }
 
     doc = nlp(_truncate_at_sentence(text))
-    
-    counts = {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
-    
+
+    # --- SRL-lite (Jurafsky WHO did WHAT WHERE) ---
+    agents = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
+    actions = [t for t in doc if t.pos_ == 'VERB' and t.dep_ in ('ROOT', 'ccomp', 'xcomp')]
+    locations = [t for t in doc if t.ent_type_ in ('GPE', 'LOC', 'FAC')]
+
+    has_a = int(len(agents) > 0)
+    has_v = int(len(actions) > 0)
+    has_l = int(len(locations) > 0)
+
+    # --- NER top entities ---
+    seen_locs: dict[str, int] = {}
+    seen_orgs: dict[str, int] = {}
+    for ent in doc.ents:
+        text_norm = ent.text.strip()
+        if not text_norm:
+            continue
+        if ent.label_ in ('GPE', 'LOC', 'FAC'):
+            seen_locs[text_norm] = seen_locs.get(text_norm, 0) + 1
+        elif ent.label_ == 'ORG':
+            seen_orgs[text_norm] = seen_orgs.get(text_norm, 0) + 1
+    top_locs = [k for k, _ in sorted(seen_locs.items(), key=lambda x: -x[1])[:5]]
+    top_orgs = [k for k, _ in sorted(seen_orgs.items(), key=lambda x: -x[1])[:5]]
+
+    # --- verb tense counts ---
+    tense_counts = {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
     for token in doc:
-        # We only care about main verbs and auxiliaries
         if token.pos_ in ('VERB', 'AUX'):
             morph_tense = token.morph.get('Tense')
-            
             if morph_tense:
                 if 'Past' in morph_tense:
-                    counts['past_tense'] += 1
+                    tense_counts['past_tense'] += 1
                 elif 'Pres' in morph_tense:
-                    # Intercept English future auxiliary 'will' / 'shall' 
-                    # which SpaCy often tags as Present or Finite.
                     if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
-                        counts['future_tense'] += 1
+                        tense_counts['future_tense'] += 1
                     else:
-                        counts['present_tense'] += 1
-                elif 'Fut' in morph_tense: 
-                    # Natively captures Spanish future tense inflection
-                    counts['future_tense'] += 1
+                        tense_counts['present_tense'] += 1
+                elif 'Fut' in morph_tense:
+                    tense_counts['future_tense'] += 1
             else:
-                # Failsafe for English future auxiliaries lacking explicit Tense tags
                 if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
-                     counts['future_tense'] += 1
-                     
-    return counts
+                    tense_counts['future_tense'] += 1
+
+    return {
+        'has_agent': has_a,
+        'has_action': has_v,
+        'has_location': has_l,
+        'srl_complete': int(has_a and has_v and has_l),
+        'top_locations': json.dumps(top_locs, ensure_ascii=False),
+        'top_orgs': json.dumps(top_orgs, ensure_ascii=False),
+        **tense_counts,
+    }
 
 def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -250,32 +270,15 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     )
     df = pd.concat([df, kw_scores], axis=1)
 
-    # 2. Semantic role labelling features (requires spacy)
-    logger.info('extracting SRL features...')
-    srl_feats = df.apply(
-        lambda r: extract_srl_features(r['clean_text'], r['language']),
+    # 2. spaCy-derived features (SRL-lite + NER + verb tenses)
+    # Parse once per row and reuse the Doc to avoid 3x repeated spaCy calls.
+    logger.info('extracting SRL/NER/tense features (single spaCy pass)...')
+    spacy_feats = df.apply(
+        lambda r: _extract_spacy_features(r['clean_text'], r['language']),
         axis=1,
         result_type='expand'
     )
-    df = pd.concat([df, srl_feats], axis=1)
-
-    # 3. Named entity extraction (Phase 6c)
-    logger.info('extracting named entities...')
-    ner_feats = df.apply(
-        lambda r: extract_named_entities(r['clean_text'], r['language']),
-        axis=1,
-        result_type='expand'
-    )
-    df = pd.concat([df, ner_feats], axis=1)
-
-    # 4. Verb tense extraction
-    logger.info('extracting verb tenses...')
-    tense_feats = df.apply(
-        lambda r: count_verb_tenses(r['clean_text'], r['language']),
-        axis=1,
-        result_type='expand'
-    )
-    df = pd.concat([df, tense_feats], axis=1)
+    df = pd.concat([df, spacy_feats], axis=1)
 
     # 4. Integrate Past Tense Penalty into Actionability Score
     logger.info('applying past tense penalty to actionability score...')
