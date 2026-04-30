@@ -260,15 +260,22 @@ def cross_lingual_similarity(
 
     # compute data-driven threshold from full score distribution
     scores = np.array(all_best_scores)
-    threshold = float(np.percentile(scores, percentile))
+    p25, p50, p75, p90 = (float(np.percentile(scores, p)) for p in (25, 50, 75, 90))
     logger.info(
         f'CSLS best-match distribution — '
-        f'p25={np.percentile(scores, 25):.3f} '
-        f'p50={np.percentile(scores, 50):.3f} '
-        f'p75={np.percentile(scores, 75):.3f} '
-        f'p90={np.percentile(scores, 90):.3f}'
+        f'p25={p25:.3f} p50={p50:.3f} p75={p75:.3f} p90={p90:.3f}'
     )
-    logger.info(f'cross-lingual threshold: p{percentile} = {threshold:.4f}')
+    threshold = float(np.percentile(scores, percentile))
+    # fallback: if configured percentile would yield no pairs at all, drop to p50
+    # so small / imbalanced corpora always produce some output to analyse
+    n_above = int((scores >= threshold).sum())
+    if n_above == 0 and percentile > 50:
+        threshold = p50
+        logger.warning(
+            f'p{percentile} threshold ({threshold:.3f}) would discard all candidates — '
+            f'falling back to p50 ({p50:.3f}) to preserve output for analysis'
+        )
+    logger.info(f'cross-lingual threshold: {threshold:.4f}')
 
     # pass 2: mutual nearest-neighbour filter + threshold
     # a pair (i, j) is kept only when i is j's best match AND j is i's best match.
@@ -292,9 +299,9 @@ def cross_lingual_similarity(
         n_one_sided = 0
         for i, ia in enumerate(idx_a):
             j = int(best_b_for_a[i])
-            if int(best_a_for_b[j]) != i:
+            mutual = int(best_a_for_b[j]) == i
+            if not mutual:
                 n_one_sided += 1
-                continue   # not a mutual best match — discard
             score = float(sim_matrix[i, j])
             if score >= threshold:
                 pairs.append({
@@ -303,12 +310,14 @@ def cross_lingual_similarity(
                     'idx_a':      ia,
                     'idx_b':      idx_b[j],
                     'similarity': round(score, 4),
+                    'mutual':     mutual,   # False = one-sided; interpret with more caution
                     'url_a':      df.loc[ia, 'url'] if 'url' in df.columns else '',
                     'url_b':      df.loc[idx_b[j], 'url'] if 'url' in df.columns else '',
                 })
+        n_mutual = sum(1 for p in pairs if p['mutual'])
         logger.info(
-            f'{lang_a}↔{lang_b}: {len(pairs)} mutual pairs above p{percentile} threshold '
-            f'({n_one_sided} one-sided matches discarded)'
+            f'{lang_a}↔{lang_b}: {len(pairs)} pairs above p{percentile} threshold '
+            f'({n_mutual} mutual, {len(pairs) - n_mutual} one-sided, {n_one_sided} below threshold)'
         )
         all_pairs.extend(pairs)
 

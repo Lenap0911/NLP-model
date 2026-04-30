@@ -184,7 +184,7 @@ CROSS_LINGUAL_THRESHOLD_PERCENTILE = 75
 # All-but-Top postprocessing (Mu & Viswanath 2018): subtract corpus mean then
 # remove top-D principal components so cosine distances span the full sphere.
 # Applied after encoding, before similarity comparison and clustering.
-ISOTROPY_D = 3   # principal components to remove; 1–5 typical for sentence embeddings
+ISOTROPY_D = 1   # 1 = safe for small corpora (<200 docs); increase to 3 on large datasets
 
 # ── clustering / diffusion ────────────────────────────────────────────────────
 # Xu & Qiang (2022) distance-decay; Sit et al. (2020) DBSCAN spatial clusters
