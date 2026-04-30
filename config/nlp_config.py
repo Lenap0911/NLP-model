@@ -6,7 +6,7 @@
 import os
 
 # ── dataset ──────────────────────────────────────────────────────────────────
-# current test dataset: flood-126 (Valencia 2024, Spain), 39 articles
+# pilot dataset: 6 flood events (IDs 1–6), 6161 articles, EN/ES/PT
 # to switch dataset: update INPUT_CSV — no other file needs changing
 # actual CSV columns:
 #   doc_num, flood_id, country, url, domain, page_title, pub_date,
@@ -16,7 +16,7 @@ import os
 #   is_content_duplicate, signal_many_short_lines, signal_no_long_sentence,
 #   signal_large_low_flood, clean_text_relevant
 DATA_DIR   = os.path.join(os.path.dirname(__file__), '..', 'data')
-INPUT_CSV  = os.path.join(DATA_DIR, 'url_report_flood_126_relevant_with_text.csv')
+INPUT_CSV  = os.path.join(DATA_DIR, 'url_report_pilot.csv')
 
 # ── column name constants (matches actual CSV schema) ────────────────────────
 TEXT_COLUMN     = 'clean_text_relevant'   # pre-cleaned article body
