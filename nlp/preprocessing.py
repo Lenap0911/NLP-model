@@ -7,6 +7,7 @@
 
 import re
 import json
+import difflib
 import logging
 import hashlib
 import importlib
@@ -80,17 +81,51 @@ def count_flood_hits(text: str, lang: str, lexicon: dict) -> int:
     return hits
 
 
+def _normalize(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _strip_leading_title_repeat(title: str, body: str, threshold: float = 0.85) -> str:
+    """
+    removes the opening sentence of body when it closely matches title
+    prevents title double-counting in LaBSE embedding
+    uses startswith fast-path, then SequenceMatcher similarity (>= threshold)
+    """
+    if not title or not body:
+        return body
+    m = re.search(r'(?<=[.!?])\s', body)
+    first_sent = body[:m.start()] if m else body[:len(title) + 60]
+    norm_title = _normalize(title)
+    norm_sent = _normalize(first_sent)
+    if not norm_title:
+        return body
+    if norm_sent.startswith(norm_title):
+        return body[len(first_sent):].lstrip()
+    if difflib.SequenceMatcher(None, norm_title, norm_sent).ratio() >= threshold:
+        return body[len(first_sent):].lstrip()
+    return body
+
+
 def build_embed_text(row: pd.Series) -> str:
     """
     constructing the text string to embed per article
     following El Ouadi (2025): title + description + opening sentence
-    combined into a single string for LaBSE embedding
+    strips body opening sentence if it duplicates the title (inflates title weight)
     """
     parts = []
+    title = ''
     for field in config.FIELDS_TO_EMBED:
-        val = row.get(field, '')
-        if isinstance(val, str) and val.strip():
-            parts.append(val.strip())
+        val = (row.get(field, '') or '').strip()
+        if not val:
+            continue
+        if field == config.TITLE_COLUMN:
+            title = val
+        elif field == 'clean_text':
+            val = _strip_leading_title_repeat(title, val)
+        if val:
+            parts.append(val)
     return ' '.join(parts)
 
 
