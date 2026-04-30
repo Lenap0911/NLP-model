@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(del \"c:\\\\Users\\\\lenka\\\\Documents\\\\CSS-SEM4\\\\Flood\\\\Model\\\\actionability_tester.ipynb\")"
     ]
   }
 }
