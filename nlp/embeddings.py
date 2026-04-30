@@ -200,84 +200,90 @@ def _csls_matrix(emb_a: np.ndarray, emb_b: np.ndarray, k: int = 10) -> np.ndarra
     return 2 * sim - r_a[:, None] - r_b[None, :]
 
 
-def _compute_pairs(
-    embeddings: np.ndarray,
-    df: pd.DataFrame,
-    lang_a: str,
-    lang_b: str,
-    threshold: float = 0.75,
-) -> list[dict]:
-    """
-    Find all high-similarity pairs between lang_a and lang_b articles.
-    Uses CSLS scoring to correct for hubness before applying the threshold.
-    Returns list of pair dicts with idx_a, idx_b, similarity, url_a, url_b.
-    """
-    mask_a = df['language'] == lang_a
-    mask_b = df['language'] == lang_b
-
-    emb_a = embeddings[mask_a.values]
-    emb_b = embeddings[mask_b.values]
-
-    if emb_a.shape[0] == 0 or emb_b.shape[0] == 0:
-        return []
-
-    sim_matrix = _csls_matrix(emb_a, emb_b, k=config.CSLS_K)  # shape (n_a, n_b)
-    idx_a = df[mask_a].index.tolist()
-    idx_b = df[mask_b].index.tolist()
-
-    pairs = []
-    for i, ia in enumerate(idx_a):
-        top_j = int(np.argmax(sim_matrix[i]))
-        score  = float(sim_matrix[i, top_j])
-        if score >= threshold:
-            pairs.append({
-                'lang_a':     lang_a,
-                'lang_b':     lang_b,
-                'idx_a':      ia,
-                'idx_b':      idx_b[top_j],
-                'similarity': round(score, 4),
-                'url_a':      df.loc[ia, 'url'] if 'url' in df.columns else '',
-                'url_b':      df.loc[idx_b[top_j], 'url'] if 'url' in df.columns else '',
-            })
-    return pairs
-
-
 def cross_lingual_similarity(
     embeddings: np.ndarray,
     df: pd.DataFrame,
-    threshold: float = 0.75,
 ) -> pd.DataFrame:
     """
-    Compute pairwise cosine similarity between articles in different languages.
-    Covers EN↔ES and EN↔PT pairs for the Americas trilingual corpus.
+    Compute CSLS-scored cross-lingual pairs for all language combinations present.
+    Threshold is data-driven: the Nth percentile of best-match CSLS scores across
+    the full corpus (config.CROSS_LINGUAL_THRESHOLD_PERCENTILE, default 75).
+    This adapts to corpus size, language mix, and topic diversity rather than
+    relying on a hardcoded absolute score.
+
     Grounding: El Ouadi (2025) cross-lingual flood coverage comparison;
     Khawaja et al. (2025) Global North / South media framing.
-
-    Returns a dataframe of high-similarity cross-lingual pairs sorted by similarity.
+    Returns a dataframe sorted by similarity descending.
     Columns: lang_a, lang_b, idx_a, idx_b, similarity, url_a, url_b
     """
+    percentile = config.CROSS_LINGUAL_THRESHOLD_PERCENTILE
     languages_present = set(df['language'].dropna().unique())
+    _EMPTY = pd.DataFrame(columns=['lang_a', 'lang_b', 'idx_a', 'idx_b',
+                                   'similarity', 'url_a', 'url_b'])
 
-    # Language pairs to evaluate — extend if more languages are added
     lang_pairs = [
         ('en', 'es'),  # English ↔ Spanish (core Americas comparison)
         ('en', 'pt'),  # English ↔ Portuguese (Brazil coverage)
         ('es', 'pt'),  # Spanish ↔ Portuguese (intra-Latin America comparison)
     ]
 
-    all_pairs = []
+    # pass 1: build CSLS matrices, collect best-match score per source article
+    computed = []
+    all_best_scores = []
     for lang_a, lang_b in lang_pairs:
         if lang_a not in languages_present or lang_b not in languages_present:
             logger.debug(f'skipping {lang_a}↔{lang_b}: one or both languages absent')
             continue
-        pairs = _compute_pairs(embeddings, df, lang_a, lang_b, threshold)
-        logger.info(f'{lang_a}↔{lang_b}: {len(pairs)} pairs above threshold {threshold}')
+        mask_a = df['language'] == lang_a
+        mask_b = df['language'] == lang_b
+        emb_a = embeddings[mask_a.values]
+        emb_b = embeddings[mask_b.values]
+        if emb_a.shape[0] == 0 or emb_b.shape[0] == 0:
+            continue
+        sim_matrix = _csls_matrix(emb_a, emb_b, k=config.CSLS_K)
+        idx_a = df[mask_a].index.tolist()
+        idx_b = df[mask_b].index.tolist()
+        computed.append((lang_a, lang_b, sim_matrix, idx_a, idx_b))
+        all_best_scores.extend(sim_matrix.max(axis=1).tolist())
+
+    if not computed:
+        logger.info('no cross-lingual pairs found (dataset may be single-language)')
+        return _EMPTY
+
+    # compute data-driven threshold from full score distribution
+    scores = np.array(all_best_scores)
+    threshold = float(np.percentile(scores, percentile))
+    logger.info(
+        f'CSLS best-match distribution — '
+        f'p25={np.percentile(scores, 25):.3f} '
+        f'p50={np.percentile(scores, 50):.3f} '
+        f'p75={np.percentile(scores, 75):.3f} '
+        f'p90={np.percentile(scores, 90):.3f}'
+    )
+    logger.info(f'cross-lingual threshold: p{percentile} = {threshold:.4f}')
+
+    # pass 2: filter by threshold and build pair records
+    all_pairs = []
+    for lang_a, lang_b, sim_matrix, idx_a, idx_b in computed:
+        pairs = []
+        for i, ia in enumerate(idx_a):
+            top_j = int(np.argmax(sim_matrix[i]))
+            score  = float(sim_matrix[i, top_j])
+            if score >= threshold:
+                pairs.append({
+                    'lang_a':     lang_a,
+                    'lang_b':     lang_b,
+                    'idx_a':      ia,
+                    'idx_b':      idx_b[top_j],
+                    'similarity': round(score, 4),
+                    'url_a':      df.loc[ia, 'url'] if 'url' in df.columns else '',
+                    'url_b':      df.loc[idx_b[top_j], 'url'] if 'url' in df.columns else '',
+                })
+        logger.info(f'{lang_a}↔{lang_b}: {len(pairs)} pairs above p{percentile} threshold')
         all_pairs.extend(pairs)
 
     if not all_pairs:
-        logger.info('no cross-lingual pairs found (dataset may be single-language)')
-        return pd.DataFrame(columns=['lang_a', 'lang_b', 'idx_a', 'idx_b',
-                                     'similarity', 'url_a', 'url_b'])
+        return _EMPTY
 
     result = pd.DataFrame(all_pairs).sort_values('similarity', ascending=False)
     logger.info(f'total cross-lingual pairs: {len(result)}')

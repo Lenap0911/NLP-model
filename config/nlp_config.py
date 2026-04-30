@@ -171,6 +171,10 @@ SPACY_MODELS = {
 # CSLS_K: neighbourhood size for Cross-Lingual Similarity Local Scaling.
 # Conneau et al. (2018) show k=10 optimal on MUSE benchmarks; lower k for small corpora.
 CSLS_K = 10
+# CROSS_LINGUAL_THRESHOLD_PERCENTILE: keep the top N% of best-match CSLS scores.
+# Data-driven — adapts to corpus size, language mix, and topic diversity.
+# 75 = top quartile of matches; raise to 80–90 for stricter pairing.
+CROSS_LINGUAL_THRESHOLD_PERCENTILE = 75
 
 # ── isotropy correction ───────────────────────────────────────────────────────
 # All-but-Top postprocessing (Mu & Viswanath 2018): subtract corpus mean then
