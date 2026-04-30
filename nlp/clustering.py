@@ -11,11 +11,38 @@ import pandas as pd
 config = importlib.import_module('config.nlp_config')
 logger = logging.getLogger(__name__)
 
+# function-word stopwords per language — prevents c-TF-IDF surfacing articles/prepositions
+# as topic keywords instead of flood-relevant content words
+_STOPWORDS: dict[str, list[str]] = {
+    'es': [
+        'de','la','el','en','y','a','los','del','se','las','por','un','con',
+        'una','su','al','lo','le','da','ha','que','no','es','pero','más',
+        'esto','este','esta','han','sus','como','para','también','son','fue',
+        'si','ya','todo','hay','sobre','cuando','donde','después','durante',
+        'antes','mientras','entre','sin','hasta','desde','porque','aunque',
+    ],
+    'pt': [
+        'de','da','do','das','dos','em','no','na','nos','nas','ao','à',
+        'pelo','pela','pelos','pelas','a','o','as','os','e','ou','que',
+        'com','para','por','mais','mas','não','já','também','só','assim',
+        'ainda','se','como','porque','quando','onde','este','esta','esse',
+        'essa','isso','isto','aquele','aquela','seu','sua','seus','suas',
+        'um','uma','foi','são','tem','era','ser','estar','ter','há','haver',
+    ],
+    'en': [
+        'the','a','an','in','of','to','and','or','is','are','was','were',
+        'be','been','being','have','has','had','do','does','did','will',
+        'would','could','should','may','might','that','this','these','those',
+        'it','its','by','with','for','on','at','from','as','but','not',
+    ],
+}
+
 
 def run_bertopic(
     texts: list,
     embeddings: np.ndarray = None,
     language: str = 'multilingual',
+    languages: list = None,
 ) -> tuple:
     """
     fitting BERTopic on article texts with precomputed LaBSE embeddings
@@ -23,6 +50,7 @@ def run_bertopic(
     passing precomputed embeddings avoids re-encoding (uses LaBSE output directly)
 
     BERTopic runs UMAP → HDBSCAN internally — no separate reduction/clustering step needed
+    languages: ISO 639-1 codes present in the corpus — used to select stopwords
     returns (topic_model, topics, probs)
     topics is a list of topic IDs per document (-1 = outlier)
     """
@@ -33,17 +61,11 @@ def run_bertopic(
 
     from sklearn.feature_extraction.text import CountVectorizer
 
-    # Spanish stopwords — prevents function words dominating topic representations
-    # BERTopic's default c-TF-IDF picks up 'de', 'la', 'el' without this
-    _ES_STOPWORDS = [
-        'de','la','el','en','y','a','los','del','se','las','por','un','con',
-        'una','su','al','lo','le','da','ha','que','no','es','pero','más',
-        'esto','este','esta','han','sus','como','para','también','son','fue',
-        'si','ya','todo','hay','sobre','cuando','donde','después','durante',
-        'antes','mientras','entre','sin','hasta','desde','porque','aunque',
-    ]
+    active_langs = languages or list(_STOPWORDS.keys())
+    combined_stopwords = sorted({w for lang in active_langs for w in _STOPWORDS.get(lang, [])})
+    logger.info(f'vectorizer stopwords: {len(combined_stopwords)} words for langs {active_langs}')
     vectorizer = CountVectorizer(
-        stop_words=_ES_STOPWORDS,
+        stop_words=combined_stopwords,
         ngram_range=config.BERTOPIC_NGRAM_RANGE,
         min_df=config.BERTOPIC_MIN_DF,
     )
@@ -136,7 +158,8 @@ def run_clustering(df: pd.DataFrame, embeddings: np.ndarray) -> pd.DataFrame:
     adds columns: umap_cluster, topic_id to df
     """
     texts = df['embed_text'].tolist()
-    topic_model, topics, _ = run_bertopic(texts, embeddings=embeddings)
+    languages = df['language'].dropna().unique().tolist() if 'language' in df.columns else None
+    topic_model, topics, _ = run_bertopic(texts, embeddings=embeddings, languages=languages)
 
     df['umap_cluster'] = topic_model.hdbscan_model.labels_
     df['topic_id'] = topics
