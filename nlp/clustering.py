@@ -1,98 +1,15 @@
-# nlp/clustering.py
-# semantic clustering of flood articles in embedding space
-# theoretical basis:
-#   Sit et al. (2020): UMAP dimensionality reduction + DBSCAN for spatial clusters
-#   Dujardin et al. (2024): BERTopic for temporal-spatial topic discovery
-#   Xu & Qiang (2022): distance-decay in information diffusion — clusters reflect proximity
-"""
-import logging
-import importlib
-
-import numpy as np
-import pandas as pd
-from sklearn.cluster import DBSCAN
-from sklearn.metrics import silhouette_score
-
-config = importlib.import_module('config.nlp_config')
-logger = logging.getLogger(__name__)
-
-"""
-
-
 import os
 import sys
 import logging
 import importlib
 
-# Ensure project root is on sys.path when running this file directly:
-# python nlp/clustering.py
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import numpy as np
 import pandas as pd
-from sklearn.cluster import DBSCAN
-from sklearn.metrics import silhouette_score
 
 config = importlib.import_module('config.nlp_config')
 logger = logging.getLogger(__name__)
-
-def reduce_with_umap(embeddings: np.ndarray, n_components: int = None) -> np.ndarray:
-    """
-    reducing LaBSE embeddings from 768 dims to n_components
-    before applying DBSCAN — following Sit et al. (2020) pipeline:
-    LSTM embeddings → UMAP → DBSCAN to identify impact areas
-
-    UMAP preserves local structure (cluster topology) better than PCA
-    for high-dimensional sentence embeddings
-    """
-    try:
-        import umap
-    except ImportError:
-        raise ImportError('umap-learn not installed — run: pip install umap-learn')
-
-    n_components = n_components or config.UMAP_N_COMPONENTS
-    logger.info(f'reducing embeddings to {n_components} dims with UMAP...')
-    reducer = umap.UMAP(
-        n_components=n_components,
-        n_neighbors=config.UMAP_N_NEIGHBORS,
-        metric='cosine',
-        random_state=42,
-    )
-    reduced = reducer.fit_transform(embeddings)
-    logger.info(f'UMAP complete: shape {reduced.shape}')
-    return reduced
-
-
-def cluster_with_dbscan(
-    reduced_embeddings: np.ndarray,
-    eps: float = None,
-    min_samples: int = None,
-) -> np.ndarray:
-    """
-    clustering articles in UMAP-reduced embedding space using DBSCAN
-    rationale for DBSCAN over K-means:
-    - flood article clusters have irregular density (Sit et al. 2020)
-    - articles from the same geographic impact zone cluster tightly
-    - outlier articles (noise, -1 label) are meaningfully different —
-      genuinely atypical coverage that doesn't fit any cluster
-    - no need to pre-specify K: number of topics emerges from data
-    """
-    eps         = eps or config.DBSCAN_EPS
-    min_samples = min_samples or config.DBSCAN_MIN_SAMPLES
-
-    db = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
-    labels = db.fit_predict(reduced_embeddings)
-
-    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    n_noise    = (labels == -1).sum()
-    logger.info(f'DBSCAN: {n_clusters} clusters, {n_noise} noise articles (eps={eps}, min_samples={min_samples})')
-
-    if n_clusters > 1:
-        non_noise = labels != -1
-        sil = silhouette_score(reduced_embeddings[non_noise], labels[non_noise])
-        logger.info(f'silhouette score (non-noise): {sil:.4f}')
-
-    return labels
 
 
 def run_bertopic(
@@ -105,6 +22,7 @@ def run_bertopic(
     following Dujardin et al. (2024) who used BERTopic for the 2021 EU floods
     passing precomputed embeddings avoids re-encoding (uses LaBSE output directly)
 
+    BERTopic runs UMAP → HDBSCAN internally — no separate reduction/clustering step needed
     returns (topic_model, topics, probs)
     topics is a list of topic IDs per document (-1 = outlier)
     """
@@ -126,8 +44,8 @@ def run_bertopic(
     ]
     vectorizer = CountVectorizer(
         stop_words=_ES_STOPWORDS,
-        ngram_range=(1, 2),   # unigrams + bigrams for richer topic labels
-        min_df=2,             # token must appear in at least 2 docs
+        ngram_range=(1, 2),
+        min_df=2,
     )
 
     logger.info('fitting BERTopic...')
@@ -169,22 +87,17 @@ def run_bertopic(
 def run_clustering(df: pd.DataFrame, embeddings: np.ndarray) -> pd.DataFrame:
     """
     main entry point: running full clustering pipeline
-    1. UMAP reduction (768 → 5 dims)
-    2. DBSCAN clustering on reduced embeddings
-    3. BERTopic topic modelling on texts with LaBSE embeddings
+    BERTopic's internal UMAP → HDBSCAN is the single clustering step (Dujardin et al. 2024)
+    umap_cluster: raw HDBSCAN cluster labels (-1 = noise)
+    topic_id: BERTopic semantic topic ID (-1 = outlier)
     adds columns: umap_cluster, topic_id to df
     """
-    # UMAP + DBSCAN following Sit et al. (2020)
-    reduced       = reduce_with_umap(embeddings)
-    cluster_labels = cluster_with_dbscan(reduced)
-    df['umap_cluster'] = cluster_labels
-
-    # BERTopic following Dujardin et al. (2024)
     texts = df['embed_text'].tolist()
     topic_model, topics, _ = run_bertopic(texts, embeddings=embeddings)
+
+    df['umap_cluster'] = topic_model.hdbscan_model.labels_
     df['topic_id'] = topics
 
-    # saving topic info separately
     topic_info = topic_model.get_topic_info()
     topic_info.to_csv(config.TOPICS_PATH, index=False)
     logger.info(f'topic info saved to {config.TOPICS_PATH}')
