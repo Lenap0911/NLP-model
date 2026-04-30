@@ -11,9 +11,9 @@ import difflib
 import logging
 import hashlib
 import importlib
+from functools import lru_cache
 
 import pandas as pd
-import langid
 
 # loading config modularly so any path change only touches nlp_config.py
 config = importlib.import_module('config.nlp_config')
@@ -53,14 +53,36 @@ def clean_text(text: str) -> str:
     return text
 
 
+@lru_cache(maxsize=1)
+def _build_lingua_detector():
+    """builds lingua detector once, restricted to SUPPORTED_LANGUAGES for higher accuracy"""
+    from lingua import Language, LanguageDetectorBuilder
+    _lingua_lang_map = {
+        'en': Language.ENGLISH,
+        'es': Language.SPANISH,
+        'pt': Language.PORTUGUESE,
+        'fr': Language.FRENCH,
+    }
+    langs = [_lingua_lang_map[c] for c in config.SUPPORTED_LANGUAGES if c in _lingua_lang_map]
+    return LanguageDetectorBuilder.from_languages(*langs).build()
+
+
 def detect_language(text: str) -> str:
     """
-    detecting language using langid (same library as CC pipeline stage_06)
-    returning iso 639-1 code; falls back to 'unknown' on failure
+    detecting language using lingua-py — more accurate than langid for regional
+    Spanish (Caribbean, Andean, Rioplatense) and Portuguese varieties
+    detector is restricted to SUPPORTED_LANGUAGES: narrowing candidates improves accuracy
+    returns iso 639-1 code; falls back to 'unknown' if lingua not installed
+    install: pip install lingua-language-detector
     """
+    _iso_map = {'ENGLISH': 'en', 'SPANISH': 'es', 'PORTUGUESE': 'pt', 'FRENCH': 'fr'}
     try:
-        lang, _ = langid.classify(text[:500])  # 500 chars is sufficient for detection
-        return lang
+        detector = _build_lingua_detector()
+        result = detector.detect_language_of(text[:500])
+        return _iso_map.get(result.name, 'unknown') if result else 'unknown'
+    except ImportError:
+        logger.warning('lingua-language-detector not installed — run: pip install lingua-language-detector')
+        return 'unknown'
     except Exception:
         return 'unknown'
 
