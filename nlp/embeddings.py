@@ -60,6 +60,28 @@ def generate_embeddings(
     return embeddings
 
 
+def isotropy_correction(embeddings: np.ndarray, d: int = None) -> np.ndarray:
+    """
+    All-but-Top postprocessing (Mu & Viswanath 2018):
+    sentence embedding spaces are anisotropic — vectors cluster in a narrow cone,
+    making cosine similarity artificially inflated and poorly discriminative.
+    Fix: subtract the corpus mean, then remove the top-D dominant directions via SVD.
+    Re-normalise to unit length so cosine sim = dot product is restored.
+    Applied corpus-wide after encoding, before similarity thresholding and clustering.
+    """
+    d = d if d is not None else config.ISOTROPY_D
+    mean = embeddings.mean(axis=0)
+    centered = embeddings - mean
+    _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+    top_directions = Vt[:d]
+    for direction in top_directions:
+        centered -= centered.dot(direction)[:, None] * direction
+    norms = np.linalg.norm(centered, axis=1, keepdims=True)
+    corrected = centered / np.maximum(norms, 1e-9)
+    logger.info(f'isotropy correction applied (d={d}): embeddings re-normalised')
+    return corrected
+
+
 def save_embeddings(embeddings: np.ndarray, path: str = None) -> None:
     """saving embeddings to .npy so they don't need to be recomputed"""
     path = path or config.EMBEDDINGS_PATH
@@ -128,10 +150,9 @@ def run_embeddings_incremental(
 
     if cached_emb is not None and n_new == 0:
         logger.info('all doc_ids found in cache — skipping encoding')
-        # Return in original df order
         id_to_idx = {did: i for i, did in enumerate(cached_ids)}
         ordered_emb = np.array([cached_emb[id_to_idx[did]] for did in doc_ids])
-        return df, ordered_emb
+        return df, isotropy_correction(ordered_emb)
 
     if cached_emb is None or n_new == len(doc_ids):
         logger.info('no usable cache — encoding full corpus')
@@ -154,10 +175,10 @@ def run_embeddings_incremental(
     save_embedding_cache(all_embeddings, all_ids)
     save_embeddings(all_embeddings)  # also update the .npy for backward compat
 
-    # Return in original df order
+    # Return in original df order; apply correction on full merged corpus
     id_to_idx = {did: i for i, did in enumerate(all_ids)}
     ordered_emb = np.array([all_embeddings[id_to_idx[did]] for did in doc_ids])
-    return df, ordered_emb
+    return df, isotropy_correction(ordered_emb)
 
 
 def _compute_pairs(
@@ -254,6 +275,7 @@ def run_embeddings(df: pd.DataFrame, model: SentenceTransformer = None) -> tuple
         model = load_model()
     texts = df['embed_text'].tolist()
     embeddings = generate_embeddings(texts, model=model)
+    embeddings = isotropy_correction(embeddings)
     save_embeddings(embeddings)
     # Also update the incremental cache
     id_col = 'doc_id' if 'doc_id' in df.columns else None

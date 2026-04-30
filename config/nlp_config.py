@@ -167,6 +167,12 @@ SPACY_MODELS = {
     'pt': 'pt_core_news_sm',   # install: python -m spacy download pt_core_news_sm
 }
 
+# ── isotropy correction ───────────────────────────────────────────────────────
+# All-but-Top postprocessing (Mu & Viswanath 2018): subtract corpus mean then
+# remove top-D principal components so cosine distances span the full sphere.
+# Applied after encoding, before similarity comparison and clustering.
+ISOTROPY_D = 3   # principal components to remove; 1–5 typical for sentence embeddings
+
 # ── clustering / diffusion ────────────────────────────────────────────────────
 # Xu & Qiang (2022) distance-decay; Sit et al. (2020) DBSCAN spatial clusters
 DBSCAN_EPS         = 0.7   # euclidean distance in UMAP-reduced space; increase for small datasets
