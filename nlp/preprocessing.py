@@ -110,6 +110,11 @@ def deduplicate(df: pd.DataFrame, text_col: str = 'clean_text') -> pd.DataFrame:
     return df
 
 
+def _log_lang_dist(df: pd.DataFrame, step: str) -> None:
+    dist = df['language'].value_counts().to_dict() if 'language' in df.columns else {}
+    logger.info(f'[{step}] n={len(df)} | lang dist: {dist}')
+
+
 def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
     """
     running the full preprocessing pipeline:
@@ -138,18 +143,18 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
 
     # filtering minimum length
     df = df[df['clean_text'].str.len() >= config.MIN_CHAR_LENGTH].copy()
-    logger.info(f'{len(df)} articles after length filter')
+    _log_lang_dist(df, 'after length filter')
 
-    # keeping only supported languages (en, es)
+    # keeping only supported languages (en, es, pt)
     df = df[df['language'].isin(config.SUPPORTED_LANGUAGES)].copy()
-    logger.info(f'{len(df)} articles after language filter ({"/".join(config.SUPPORTED_LANGUAGES)})')
+    _log_lang_dist(df, 'after language filter')
 
     # using pre-computed flood_term_hits from CSV (Blomeier et al. 2024)
     # validate the column exists and meets threshold; no recomputation needed
     if 'flood_term_hits' in df.columns:
         df['flood_hits'] = df['flood_term_hits'].astype(int)
         df = df[df['flood_hits'] >= config.MIN_FLOOD_HITS].copy()
-        logger.info(f'{len(df)} articles after flood relevance filter (pre-computed hits, min={config.MIN_FLOOD_HITS})')
+        _log_lang_dist(df, f'after flood filter (pre-computed, min={config.MIN_FLOOD_HITS})')
     else:
         # fallback: recompute from keyword lexicon if column absent
         logger.warning('flood_term_hits column not found — recomputing from lexicon')
@@ -158,16 +163,16 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
             lambda r: count_flood_hits(r['clean_text'], r['language'], lexicon), axis=1
         )
         df = df[df['flood_hits'] >= config.MIN_FLOOD_HITS].copy()
-        logger.info(f'{len(df)} articles after flood relevance filter (recomputed, min={config.MIN_FLOOD_HITS})')
+        _log_lang_dist(df, f'after flood filter (recomputed, min={config.MIN_FLOOD_HITS})')
 
     # deduplication using pre-computed flag from CSV
     if 'is_content_duplicate' in df.columns:
-        before = len(df)
         df = df[df['is_content_duplicate'].astype(str).str.lower() == 'false'].copy()
-        logger.info(f'deduplication (pre-computed flag): {before} → {len(df)} rows')
+        _log_lang_dist(df, 'after deduplication (pre-computed flag)')
     else:
         # fallback: hash-based deduplication
         df = deduplicate(df, text_col='clean_text')
+        _log_lang_dist(df, 'after deduplication (hash-based)')
 
     # building the combined field for embedding: title + body (El Ouadi 2025)
     df['embed_text'] = df.apply(build_embed_text, axis=1)
