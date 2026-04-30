@@ -243,6 +243,14 @@ def cross_lingual_similarity(
         sim_matrix = _csls_matrix(emb_a, emb_b, k=config.CSLS_K)
         idx_a = df[mask_a].index.tolist()
         idx_b = df[mask_b].index.tolist()
+        all_scores = sim_matrix.ravel()
+        logger.info(
+            f'{lang_a}↔{lang_b} pairwise CSLS distribution ({len(all_scores)} pairs) — '
+            f'min={all_scores.min():.3f} '
+            f'median={np.median(all_scores):.3f} '
+            f'p90={np.percentile(all_scores, 90):.3f} '
+            f'max={all_scores.max():.3f}'
+        )
         computed.append((lang_a, lang_b, sim_matrix, idx_a, idx_b))
         all_best_scores.extend(sim_matrix.max(axis=1).tolist())
 
