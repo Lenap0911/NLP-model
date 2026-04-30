@@ -56,6 +56,7 @@ def run_bertopic(
             min_samples=1,
             cluster_selection_epsilon=0.5,
             prediction_data=True,
+            random_state=42,
         )
         topic_model = BERTopic(
             language=language,
@@ -79,8 +80,30 @@ def run_bertopic(
     else:
         topics, probs = topic_model.fit_transform(texts)
 
+    n_total = len(topics)
+    n_outliers_before = sum(1 for t in topics if t == -1)
+    logger.info(
+        f'BERTopic initial: {len(topic_model.get_topic_info()) - 1} topics, '
+        f'{n_outliers_before}/{n_total} outliers ({100 * n_outliers_before // n_total}%)'
+    )
+
+    # reassign outliers to nearest topic by embedding distance (recommended for small corpora)
+    if n_outliers_before > 0 and embeddings is not None:
+        try:
+            topics = topic_model.reduce_outliers(
+                texts, topics, strategy='embeddings', embeddings=embeddings
+            )
+            topic_model.update_topics(texts, topics=topics)
+            n_outliers_after = sum(1 for t in topics if t == -1)
+            logger.info(
+                f'outlier reduction: {n_outliers_before} → {n_outliers_after} outliers '
+                f'({n_outliers_before - n_outliers_after} reassigned)'
+            )
+        except Exception as e:
+            logger.warning(f'outlier reduction failed ({e}) — keeping original topics')
+
     topic_info = topic_model.get_topic_info()
-    logger.info(f'BERTopic found {len(topic_info) - 1} topics (excl. outlier topic -1)')
+    logger.info(f'BERTopic final: {len(topic_info) - 1} topics (excl. outlier topic -1)')
     return topic_model, topics, probs
 
 
