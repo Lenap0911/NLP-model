@@ -23,46 +23,6 @@ TEXT_COLUMN     = 'clean_text_relevant'   # pre-cleaned article body
 TITLE_COLUMN    = 'page_title'            # article headline
 LANGUAGE_COLUMN = 'language_detected'    # ISO 639-2 codes e.g. 'spa', 'eng'
 
-# ── temporal phase reference date ────────────────────────────────────────────
-# FLOOD_REFERENCE_DATE: fallback for single-event CSVs that have no flood_date column.
-# Used when the CSV has no flood_date column and the dataset is a single event.
-FLOOD_REFERENCE_DATE = '2024-10-29'   # Valencia 2024 DANA flood onset (flood-126)
-
-# FLOOD_REFERENCE_DATES: per-event onset dates for multi-event CSVs.
-# Keyed by flood_id (int). When a CSV has a flood_date column, this dict
-# is not needed — the column value is used directly per row.
-# Add entries here for any dataset that mixes multiple events without flood_date.
-# Source: data/flood_crawl.csv Start Date column.
-FLOOD_REFERENCE_DATES: dict[int, str] = {
-    # Source: data/flood_crawl.csv Start Date column (authoritative)
-    3:   '2026-01-26',  # Colombia — departments flood
-    9:   '2025-12-23',  # USA California — county floods
-    15:  '2025-12-12',  # Bolivia — Santa Cruz / Beni / Cochabamba
-    21:  '2025-10-25',  # Costa Rica — Alajuela / Guanacaste / Puntarenas
-    22:  '2025-10-17',  # Honduras — Francisco Morazán / La Paz / Intibucá / Lempira
-    23:  '2025-10-06',  # Mexico — Veracruz / Puebla / Hidalgo / SLP / Querétaro
-    32:  '2025-09-16',  # Haiti — Chansolme, Port-de-Paix
-    60:  '2025-07-15',  # Mexico — La Martinica, Jalisco
-    61:  '2025-07-11',  # USA — NJ / NY / VA / MD / PA
-    62:  '2025-07-08',  # USA — Ruidoso, New Mexico
-    65:  '2025-07-04',  # USA — Kerr County, Texas
-    71:  '2025-06-08',  # USA — San Antonio, Texas
-    88:  '2025-04-03',  # Brazil — Petrópolis / Angra dos Reis / SP / RJ
-    97:  '2025-03-06',  # Argentina — Bahía Blanca
-    99:  '2025-03-01',  # Peru — multi-region
-    104: '2025-02-17',  # Peru — Tiquillaca, Puno
-    108: '2025-02-05',  # Bolivia — multi-department
-    110: '2025-01-24',  # Brazil — Carapicuíba, São Paulo
-    111: '2024-12-20',  # Haiti — Grand'Anse / Nippes / North-West
-    115: '2024-11-30',  # Haiti — Grand-Anse / South
-    121: '2024-11-23',  # Bolivia — La Paz capital city
-    123: '2024-11-12',  # Costa Rica — Guanacaste / Puntarenas
-    124: '2024-11-10',  # Dominican Republic
-    125: '2024-11-10',  # Haiti — Les Cayes / Torbeck / Saint-Louis-du-Sud
-    126: '2024-10-29',  # Spain — Valencia DANA flood (validation dataset)
-    128: '2024-10-18',  # USA — Roswell, Chaves County NM
-}
-
 # ── output ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'output')
 EMBEDDINGS_PATH   = os.path.join(OUTPUT_DIR, 'labse_embeddings.npy')
@@ -160,7 +120,6 @@ BERTOPIC_NGRAM_RANGE   = (1, 2)      # unigrams + bigrams for richer topic label
 BERTOPIC_MIN_DF        = 2           # token must appear in at least N docs
 HDBSCAN_MIN_SAMPLES              = 1    # 1 = allow single-point cores; raise for denser clusters
 HDBSCAN_CLUSTER_SELECTION_EPSILON = 0.5  # merge micro-clusters below this distance; raise for fewer, larger clusters
-TEMPORAL_PHASES = ['before', 'during', 'after']  # assigned via pub_date vs flood_date
 
 # ── semantic role labelling ───────────────────────────────────────────────────
 # Jurafsky (2014) Chapter 21 — extract AGENT, THEME, GOAL from flood sentences

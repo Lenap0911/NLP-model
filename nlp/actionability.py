@@ -137,28 +137,6 @@ def extract_named_entities(text: str, lang: str) -> dict:
     }
 
 
-def assign_temporal_phase(pub_date, flood_date) -> str:
-    """
-    assigning article to before / during / after phase
-    following Dujardin et al. (2024) temporal design for the 2021 European floods
-    and Sit et al. (2020) temporal analysis of Hurricane Irma
-
-    expects pub_date and flood_date as pandas Timestamps or parseable strings
-    flood_date is the peak/onset date of the flood event from the events table
-    """
-    try:
-        pub   = pd.to_datetime(pub_date)
-        flood = pd.to_datetime(flood_date)
-        delta = (pub - flood).days
-        if delta < -1:
-            return 'before'
-        elif delta <= 7:
-            return 'during'
-        else:
-            return 'after'
-    except Exception:
-        return 'unknown'
-
 def count_verb_tenses(text: str, lang: str) -> dict:
     """
     Identifies and counts verb tenses (past, present, future) using SpaCy.
@@ -257,8 +235,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     adds columns: imperative_score, short_term_score, long_term_score,
                   spatial_score, actionability_score,
                   has_agent, has_action, has_location, srl_complete,
-                  past_tense, present_tense, future_tense, past_tense_ratio,
-                  temporal_phase
+                  past_tense, present_tense, future_tense, past_tense_ratio
     """
     logger.info('scoring actionability...')
 
@@ -297,42 +274,6 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     
     # Ensure score doesn't drop below zero and round it
     df['actionability_score'] = df['actionability_score'].clip(lower=0).round(4)
-
-    # 5. Temporal phase assignment
-    # Priority order:
-    #   1. flood_date column (per-row date — set by stage_08 from flood_crawl.csv)
-    #   2. FLOOD_REFERENCE_DATES dict (per flood_id — multi-event support)
-    #   3. FLOOD_REFERENCE_DATE scalar (single-event fallback)
-    if 'flood_date' in df.columns:
-        logger.info('assigning temporal phases using flood_date column (per-row)...')
-        df['temporal_phase'] = df.apply(
-            lambda r: assign_temporal_phase(r.get('pub_date'), r.get('flood_date')),
-            axis=1
-        )
-    elif (
-        hasattr(config, 'FLOOD_REFERENCE_DATES')
-        and config.FLOOD_REFERENCE_DATES
-        and 'flood_id' in df.columns
-    ):
-        logger.info('assigning temporal phases using FLOOD_REFERENCE_DATES dict (per flood_id)...')
-        ref_dates = config.FLOOD_REFERENCE_DATES
-
-        def _phase_from_dict(row):
-            fid = row.get('flood_id')
-            ref = ref_dates.get(int(fid)) if fid is not None else None
-            if ref is None:
-                return 'unknown'
-            return assign_temporal_phase(row.get('pub_date'), ref)
-
-        df['temporal_phase'] = df.apply(_phase_from_dict, axis=1)
-    elif hasattr(config, 'FLOOD_REFERENCE_DATE') and config.FLOOD_REFERENCE_DATE:
-        logger.info(f'assigning temporal phases using FLOOD_REFERENCE_DATE={config.FLOOD_REFERENCE_DATE}...')
-        df['temporal_phase'] = df['pub_date'].apply(
-            lambda pub: assign_temporal_phase(pub, config.FLOOD_REFERENCE_DATE)
-        )
-    else:
-        logger.warning('no flood_date column or FLOOD_REFERENCE_DATE(S) set — skipping temporal phase')
-        df['temporal_phase'] = 'unknown'
 
     logger.info('actionability scoring complete')
     return df
