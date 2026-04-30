@@ -78,7 +78,6 @@ def run_bertopic(
             min_samples=config.HDBSCAN_MIN_SAMPLES,
             cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPSILON,
             prediction_data=True,
-            random_state=42,
         )
         topic_model = BERTopic(
             language=language,

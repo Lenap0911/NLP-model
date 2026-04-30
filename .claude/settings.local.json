@@ -3,7 +3,11 @@
     "allow": [
       "WebSearch",
       "Bash(del \"c:\\\\Users\\\\lenka\\\\Documents\\\\CSS-SEM4\\\\Flood\\\\Model\\\\actionability_tester.ipynb\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "PowerShell(python.exe -m pip install sentence-transformers)",
+      "PowerShell(Get-Command python)",
+      "PowerShell(python.exe -c \"import sys; print\\(sys.executable\\); print\\(sys.path\\)\")",
+      "PowerShell(python.exe -c \"import sentence_transformers; print\\('OK:', sentence_transformers.__version__\\)\")"
     ]
   }
 }

@@ -139,7 +139,8 @@ def build_embed_text(row: pd.Series) -> str:
     parts = []
     title = ''
     for field in config.FIELDS_TO_EMBED:
-        val = (row.get(field, '') or '').strip()
+        raw = row.get(field, '')
+        val = ('' if pd.isna(raw) else str(raw)).strip()
         if not val:
             continue
         if field == config.TITLE_COLUMN:
