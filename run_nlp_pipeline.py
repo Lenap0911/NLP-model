@@ -86,6 +86,11 @@ def main(input_path: str = None, skip_embed: bool = False):
     logger.info(f'enriched output  -> {config.ENRICHED_CSV_PATH}')
     logger.info(f'embeddings cache -> {config.EMBEDDINGS_PATH}')
 
+    # ── step 0: scorer validation ─────────────────────────────────────────────
+    logger.info('=== STEP 0: SCORER VALIDATION ===')
+    from nlp.validation import validate_scorer
+    validate_scorer()
+
     # ── step 1: preprocessing ─────────────────────────────────────────────────
     logger.info('=== STEP 1: PREPROCESSING ===')
     df = run_preprocessing(input_path)

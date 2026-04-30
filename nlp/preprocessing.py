@@ -87,7 +87,7 @@ def detect_language(text: str) -> str:
         return 'unknown'
 
 
-def count_flood_hits(text: str, lang: str, lexicon: dict) -> int:
+def count_flood_hits(t ext: str, lang: str, lexicon: dict) -> int:
     """
     counting flood keyword matches using word boundaries to prevent
     substring false positives — same approach as stage_06 in the CC pipeline
