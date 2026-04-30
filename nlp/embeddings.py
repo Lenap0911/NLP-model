@@ -262,24 +262,46 @@ def cross_lingual_similarity(
     )
     logger.info(f'cross-lingual threshold: p{percentile} = {threshold:.4f}')
 
-    # pass 2: filter by threshold and build pair records
+    # pass 2: mutual nearest-neighbour filter + threshold
+    # a pair (i, j) is kept only when i is j's best match AND j is i's best match.
+    # one-sided matches are a primary symptom of hubness — even after CSLS correction.
     all_pairs = []
     for lang_a, lang_b, sim_matrix, idx_a, idx_b in computed:
+        n_b = sim_matrix.shape[1]
+        best_b_for_a = np.argmax(sim_matrix, axis=1)   # (n_a,) — for each a, best b
+        best_a_for_b = np.argmax(sim_matrix, axis=0)   # (n_b,) — for each b, best a
+
+        # log hubness: b articles claimed by more than one a article
+        hub_counts = np.bincount(best_b_for_a, minlength=n_b)
+        n_hubs = int((hub_counts > 1).sum())
+        if n_hubs:
+            logger.warning(
+                f'{lang_a}↔{lang_b}: {n_hubs} hub article(s) in {lang_b} '
+                f'(matched by >1 {lang_a} article) — CSLS partially corrects this'
+            )
+
         pairs = []
+        n_one_sided = 0
         for i, ia in enumerate(idx_a):
-            top_j = int(np.argmax(sim_matrix[i]))
-            score  = float(sim_matrix[i, top_j])
+            j = int(best_b_for_a[i])
+            if int(best_a_for_b[j]) != i:
+                n_one_sided += 1
+                continue   # not a mutual best match — discard
+            score = float(sim_matrix[i, j])
             if score >= threshold:
                 pairs.append({
                     'lang_a':     lang_a,
                     'lang_b':     lang_b,
                     'idx_a':      ia,
-                    'idx_b':      idx_b[top_j],
+                    'idx_b':      idx_b[j],
                     'similarity': round(score, 4),
                     'url_a':      df.loc[ia, 'url'] if 'url' in df.columns else '',
-                    'url_b':      df.loc[idx_b[top_j], 'url'] if 'url' in df.columns else '',
+                    'url_b':      df.loc[idx_b[j], 'url'] if 'url' in df.columns else '',
                 })
-        logger.info(f'{lang_a}↔{lang_b}: {len(pairs)} pairs above p{percentile} threshold')
+        logger.info(
+            f'{lang_a}↔{lang_b}: {len(pairs)} mutual pairs above p{percentile} threshold '
+            f'({n_one_sided} one-sided matches discarded)'
+        )
         all_pairs.extend(pairs)
 
     if not all_pairs:
