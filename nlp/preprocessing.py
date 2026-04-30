@@ -117,7 +117,7 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
     2. mapping ISO 639-2 language codes → ISO 639-1 (e.g. 'spa' → 'es')
     3. cleaning text from clean_text_relevant column
     4. filtering minimum character length
-    5. filtering to supported languages (en, es)
+    5. filtering to supported languages (en, es, pt)
     6. using pre-computed flood_term_hits from CSV (no recomputation needed)
     7. filtering duplicate articles using pre-computed is_content_duplicate flag
     8. building embed_text field (page_title + clean_text) for LaBSE
@@ -142,7 +142,7 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
 
     # keeping only supported languages (en, es)
     df = df[df['language'].isin(config.SUPPORTED_LANGUAGES)].copy()
-    logger.info(f'{len(df)} articles after language filter (en/es only)')
+    logger.info(f'{len(df)} articles after language filter ({"/".join(config.SUPPORTED_LANGUAGES)})')
 
     # using pre-computed flood_term_hits from CSV (Blomeier et al. 2024)
     # validate the column exists and meets threshold; no recomputation needed
