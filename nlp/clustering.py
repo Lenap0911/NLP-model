@@ -88,22 +88,42 @@ def run_bertopic(
     )
 
     # reassign outliers to nearest topic by embedding distance (recommended for small corpora)
+    n_outliers_final = n_outliers_before
     if n_outliers_before > 0 and embeddings is not None:
         try:
             topics = topic_model.reduce_outliers(
                 texts, topics, strategy='embeddings', embeddings=embeddings
             )
             topic_model.update_topics(texts, topics=topics)
-            n_outliers_after = sum(1 for t in topics if t == -1)
+            n_outliers_final = sum(1 for t in topics if t == -1)
             logger.info(
-                f'outlier reduction: {n_outliers_before} → {n_outliers_after} outliers '
-                f'({n_outliers_before - n_outliers_after} reassigned)'
+                f'outlier reduction: {n_outliers_before} → {n_outliers_final} outliers '
+                f'({n_outliers_before - n_outliers_final} reassigned)'
             )
         except Exception as e:
             logger.warning(f'outlier reduction failed ({e}) — keeping original topics')
 
     topic_info = topic_model.get_topic_info()
-    logger.info(f'BERTopic final: {len(topic_info) - 1} topics (excl. outlier topic -1)')
+    n_topics_final = len(topic_info) - 1   # excludes the outlier row (-1)
+    outlier_rate   = n_outliers_final / n_total if n_total > 0 else 0.0
+
+    logger.info(
+        f'BERTopic quality — topics: {n_topics_final}, '
+        f'outlier rate: {n_outliers_final}/{n_total} ({outlier_rate:.0%})'
+    )
+    if outlier_rate > 0.50:
+        logger.warning(
+            f'outlier rate {outlier_rate:.0%} exceeds 50% — clustering is unreliable; '
+            f'consider lowering BERTOPIC_MIN_TOPIC_SIZE or HDBSCAN_CLUSTER_SELECTION_EPSILON'
+        )
+    elif n_topics_final < 3:
+        logger.warning(
+            f'only {n_topics_final} topic(s) found — increase corpus size or lower '
+            f'BERTOPIC_MIN_TOPIC_SIZE for more granular clustering'
+        )
+    else:
+        logger.info(f'clustering quality: OK ({n_topics_final} topics, {outlier_rate:.0%} outliers)')
+
     return topic_model, topics, probs
 
 
