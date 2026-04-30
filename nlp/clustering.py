@@ -44,8 +44,8 @@ def run_bertopic(
     ]
     vectorizer = CountVectorizer(
         stop_words=_ES_STOPWORDS,
-        ngram_range=(1, 2),
-        min_df=2,
+        ngram_range=config.BERTOPIC_NGRAM_RANGE,
+        min_df=config.BERTOPIC_MIN_DF,
     )
 
     logger.info('fitting BERTopic...')
@@ -53,8 +53,8 @@ def run_bertopic(
         from hdbscan import HDBSCAN
         hdbscan_model = HDBSCAN(
             min_cluster_size=config.BERTOPIC_MIN_TOPIC_SIZE,
-            min_samples=1,
-            cluster_selection_epsilon=0.5,
+            min_samples=config.HDBSCAN_MIN_SAMPLES,
+            cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPSILON,
             prediction_data=True,
             random_state=42,
         )

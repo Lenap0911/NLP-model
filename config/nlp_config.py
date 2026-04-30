@@ -155,7 +155,11 @@ ACTIONABILITY_KEYWORDS = {
 # ── topic modelling ───────────────────────────────────────────────────────────
 # BERTopic approach: Dujardin et al. (2024) temporal-spatial topic design
 # covers before / during / after disaster phases
-BERTOPIC_MIN_TOPIC_SIZE = 5   # lowered from 10 — set to ~10% of corpus size
+BERTOPIC_MIN_TOPIC_SIZE = 5           # ~10% of corpus size; lower for small datasets
+BERTOPIC_NGRAM_RANGE   = (1, 2)      # unigrams + bigrams for richer topic labels
+BERTOPIC_MIN_DF        = 2           # token must appear in at least N docs
+HDBSCAN_MIN_SAMPLES              = 1    # 1 = allow single-point cores; raise for denser clusters
+HDBSCAN_CLUSTER_SELECTION_EPSILON = 0.5  # merge micro-clusters below this distance; raise for fewer, larger clusters
 TEMPORAL_PHASES = ['before', 'during', 'after']  # assigned via pub_date vs flood_date
 
 # ── semantic role labelling ───────────────────────────────────────────────────
