@@ -167,6 +167,11 @@ SPACY_MODELS = {
     'pt': 'pt_core_news_sm',   # install: python -m spacy download pt_core_news_sm
 }
 
+# ── cross-lingual similarity ──────────────────────────────────────────────────
+# CSLS_K: neighbourhood size for Cross-Lingual Similarity Local Scaling.
+# Conneau et al. (2018) show k=10 optimal on MUSE benchmarks; lower k for small corpora.
+CSLS_K = 10
+
 # ── isotropy correction ───────────────────────────────────────────────────────
 # All-but-Top postprocessing (Mu & Viswanath 2018): subtract corpus mean then
 # remove top-D principal components so cosine distances span the full sphere.

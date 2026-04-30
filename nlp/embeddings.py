@@ -181,6 +181,25 @@ def run_embeddings_incremental(
     return df, isotropy_correction(ordered_emb)
 
 
+def _csls_matrix(emb_a: np.ndarray, emb_b: np.ndarray, k: int = 10) -> np.ndarray:
+    """
+    CSLS(a, b) = 2·cos(a,b) − r(a) − r(b)
+    r(x) = mean cosine of x to its k nearest neighbours in the other language.
+    Penalises hub vectors (those unusually close to many others), improving
+    cross-lingual retrieval precision by 4–8 pp over raw cosine (Conneau et al. 2018).
+    Embeddings must be L2-normalised so cos(a,b) = dot(a,b).
+    """
+    sim = emb_a @ emb_b.T  # (n_a, n_b)
+
+    k_a = min(k, emb_b.shape[0])
+    r_a = np.partition(sim, -k_a, axis=1)[:, -k_a:].mean(axis=1)  # (n_a,)
+
+    k_b = min(k, emb_a.shape[0])
+    r_b = np.partition(sim.T, -k_b, axis=1)[:, -k_b:].mean(axis=1)  # (n_b,)
+
+    return 2 * sim - r_a[:, None] - r_b[None, :]
+
+
 def _compute_pairs(
     embeddings: np.ndarray,
     df: pd.DataFrame,
@@ -190,7 +209,7 @@ def _compute_pairs(
 ) -> list[dict]:
     """
     Find all high-similarity pairs between lang_a and lang_b articles.
-    Each lang_a article is matched to its single best lang_b article if cosine >= threshold.
+    Uses CSLS scoring to correct for hubness before applying the threshold.
     Returns list of pair dicts with idx_a, idx_b, similarity, url_a, url_b.
     """
     mask_a = df['language'] == lang_a
@@ -202,7 +221,7 @@ def _compute_pairs(
     if emb_a.shape[0] == 0 or emb_b.shape[0] == 0:
         return []
 
-    sim_matrix = emb_a @ emb_b.T  # shape (n_a, n_b)
+    sim_matrix = _csls_matrix(emb_a, emb_b, k=config.CSLS_K)  # shape (n_a, n_b)
     idx_a = df[mask_a].index.tolist()
     idx_b = df[mask_b].index.tolist()
 
