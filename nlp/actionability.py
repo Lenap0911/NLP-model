@@ -48,7 +48,85 @@ def split_into_sentences(text: str) -> list[str]:
     doc = nlp(text)
     return [s.text.strip() for s in doc.sents if s.text.strip()]
 
+####        3       ####  IMPORTANT: input probaly needs to be changed not sure what 
+def create_article_df(articles: list[dict]) -> pd.DataFrame: 
+    """Create a DataFrame from a list of article metadata dictionaries.
 
+    Creates a table with one row per (doc_num, flood_id, language) and a column
+    containing the list of sentence strings for that article.
+
+    Expected keys in each dict (minimum):
+      - doc_num
+      - flood_id
+      - language
+      - clean_text  (string paragraph)
+
+    Output columns:
+      - doc_num
+      - flood_id
+      - language
+      - list_of_sentences (list[str])
+    """
+    df = pd.DataFrame(articles)
+
+    # Keep only what we need (and fail loudly if missing)
+    required = {'doc_num', 'flood_id', 'language', 'clean_text'}
+    missing = required - set(df.columns)
+    if missing:
+        raise KeyError(f'create_article_df missing required fields: {sorted(missing)}')
+
+    df = df.loc[:, ['doc_num', 'flood_id', 'language', 'clean_text']].copy()
+    df['language'] = df['language'].astype('category')
+
+    # Split each article into sentences (spaCy sentencizer)
+    df['list_of_sentences'] = df['clean_text'].fillna('').apply(split_into_sentences)
+
+    # One row per (doc_num, flood_id, language)
+    df_for_actionability = (
+        df.groupby(['doc_num', 'flood_id', 'language'], as_index=False)['list_of_sentences']
+          .agg(lambda lists: [s for sub in lists for s in sub])  # flatten if duplicates exist
+    )
+
+    return df_for_actionability
+
+
+
+
+
+def actionable_keyword_count(sentence_list: list[str], lang: str) -> pd.DataFrame:
+    """Return a per-sentence keyword-hit dataframe for one article.
+
+    Input:
+      - sentence_list: list of sentence strings for one article
+      - lang: language code
+
+    Output: DataFrame with one row per sentence and columns:
+      - sentence
+      - imperative_count
+      - short_term_count
+      - long_term_count
+      - spatial_count
+    """
+    kw_dict = config.ACTIONABILITY_KEYWORDS.get(lang, config.ACTIONABILITY_KEYWORDS['en'])
+
+    def _count_hits(sentence: str, keywords: list[str]) -> int:
+        s = sentence.lower()
+        return sum(1 for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', s))
+
+    df_of_article = pd.DataFrame({'sentence': sentence_list})
+    df_of_article['imperative_count'] = df_of_article['sentence'].apply(
+        lambda s: _count_hits(s, kw_dict['imperative_verbs'])
+    )
+    df_of_article['short_term_count'] = df_of_article['sentence'].apply(
+        lambda s: _count_hits(s, kw_dict['short_term'])
+    )
+    df_of_article['long_term_count'] = df_of_article['sentence'].apply(
+        lambda s: _count_hits(s, kw_dict['long_term'])
+    )
+    df_of_article['spatial_count'] = df_of_article['sentence'].apply(
+        lambda s: _count_hits(s, kw_dict['spatial_anchors'])
+    )
+    return df_of_article
 
 
 def score_actionability_keywords(text: str, lang: str) -> dict:
@@ -63,6 +141,8 @@ def score_actionability_keywords(text: str, lang: str) -> dict:
       - long_term_score:  recovery / resilience / policy language
       - spatial_score:    geographic anchoring (Xu & Qiang 2022: spatial explicitness)
       - total_score:      weighted composite
+
+      input: text string (article clean_text)
     """
     kw_dict = config.ACTIONABILITY_KEYWORDS.get(lang, config.ACTIONABILITY_KEYWORDS['en'])
     text_lower = text.lower()
@@ -164,49 +244,60 @@ def _extract_spacy_features(text: str, lang: str) -> dict:
             'future_tense': 0,
         }
 
-    doc = nlp(split_into_sentences(text))
+    sentences = split_into_sentences(text)
+    if not sentences:
+        sentences = [""]
+
+    # Parse per sentence (no re-joining) and aggregate features across the docs.
+    docs = list(nlp.pipe(sentences))
 
     # --- SRL-lite (Jurafsky WHO did WHAT WHERE) ---
-    agents = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
-    actions = [t for t in doc if t.pos_ == 'VERB' and t.dep_ in ('ROOT', 'ccomp', 'xcomp')]
-    locations = [t for t in doc if t.ent_type_ in ('GPE', 'LOC', 'FAC')]
-
-    has_a = int(len(agents) > 0)
-    has_v = int(len(actions) > 0)
-    has_l = int(len(locations) > 0)
+    has_a = 0
+    has_v = 0
+    has_l = 0
 
     # --- NER top entities ---
     seen_locs: dict[str, int] = {}
     seen_orgs: dict[str, int] = {}
-    for ent in doc.ents:
-        text_norm = ent.text.strip()
-        if not text_norm:
-            continue
-        if ent.label_ in ('GPE', 'LOC', 'FAC'):
-            seen_locs[text_norm] = seen_locs.get(text_norm, 0) + 1
-        elif ent.label_ == 'ORG':
-            seen_orgs[text_norm] = seen_orgs.get(text_norm, 0) + 1
+    for doc in docs:
+        agents = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
+        actions = [t for t in doc if t.pos_ == 'VERB' and t.dep_ in ('ROOT', 'ccomp', 'xcomp')]
+        locations = [t for t in doc if t.ent_type_ in ('GPE', 'LOC', 'FAC')]
+
+        has_a = int(has_a or len(agents) > 0)
+        has_v = int(has_v or len(actions) > 0)
+        has_l = int(has_l or len(locations) > 0)
+
+        for ent in doc.ents:
+            text_norm = ent.text.strip()
+            if not text_norm:
+                continue
+            if ent.label_ in ('GPE', 'LOC', 'FAC'):
+                seen_locs[text_norm] = seen_locs.get(text_norm, 0) + 1
+            elif ent.label_ == 'ORG':
+                seen_orgs[text_norm] = seen_orgs.get(text_norm, 0) + 1
     top_locs = [k for k, _ in sorted(seen_locs.items(), key=lambda x: -x[1])[:5]]
     top_orgs = [k for k, _ in sorted(seen_orgs.items(), key=lambda x: -x[1])[:5]]
 
     # --- verb tense counts ---
     tense_counts = {'past_tense': 0, 'present_tense': 0, 'future_tense': 0}
-    for token in doc:
-        if token.pos_ in ('VERB', 'AUX'):
-            morph_tense = token.morph.get('Tense')
-            if morph_tense:
-                if 'Past' in morph_tense:
-                    tense_counts['past_tense'] += 1
-                elif 'Pres' in morph_tense:
+    for doc in docs:
+        for token in doc:
+            if token.pos_ in ('VERB', 'AUX'):
+                morph_tense = token.morph.get('Tense')
+                if morph_tense:
+                    if 'Past' in morph_tense:
+                        tense_counts['past_tense'] += 1
+                    elif 'Pres' in morph_tense:
+                        if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
+                            tense_counts['future_tense'] += 1
+                        else:
+                            tense_counts['present_tense'] += 1
+                    elif 'Fut' in morph_tense:
+                        tense_counts['future_tense'] += 1
+                else:
                     if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
                         tense_counts['future_tense'] += 1
-                    else:
-                        tense_counts['present_tense'] += 1
-                elif 'Fut' in morph_tense:
-                    tense_counts['future_tense'] += 1
-            else:
-                if lang == 'en' and token.lemma_ in ('will', 'shall', "'ll"):
-                    tense_counts['future_tense'] += 1
 
     return {
         'has_agent': has_a,
