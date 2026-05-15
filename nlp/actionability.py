@@ -83,8 +83,9 @@ def create_article_df(articles: list[dict]) -> pd.DataFrame:
 
     # One row per (doc_num, flood_id, language)
     df_for_actionability = (
-        df.groupby(['doc_num', 'flood_id', 'language'], as_index=False)['list_of_sentences']
-          .agg(lambda lists: [s for sub in lists for s in sub])  # flatten if duplicates exist
+    df.groupby(['doc_num', 'flood_id', 'language'], as_index=False)
+      .agg(list_of_sentences=('list_of_sentences',
+                              lambda lists: [s for sub in lists for s in sub]))
     )
 
     return df_for_actionability
@@ -92,83 +93,71 @@ def create_article_df(articles: list[dict]) -> pd.DataFrame:
 
 
 
+####  Auxiliary function: Keyword Dictionary
+def _get_kw_dict(lang: str) -> dict:
+    """Return keyword dictionary for language; fall back to English."""
+    lang_norm = (lang or 'en').strip().lower()
+    kw = config.ACTIONABILITY_KEYWORDS.get(lang_norm) or config.ACTIONABILITY_KEYWORDS['en']
+    # Guarantee expected keys exist (empty list fallback)
+    return {
+        'imperative_verbs': kw.get('imperative_verbs', []),
+        'short_term': kw.get('short_term', []),
+        'long_term': kw.get('long_term', []),
+        'spatial_anchors': kw.get('spatial_anchors', []),
+    }
 
-def actionable_keyword_count(sentence_list: list[str], lang: str) -> pd.DataFrame:
-    """Return a per-sentence keyword-hit dataframe for one article.
 
-    Input:
-      - sentence_list: list of sentence strings for one article
-      - lang: language code
+def actionable_keyword_count(df: pd.DataFrame) -> pd.DataFrame:
+    """Add per-sentence keyword hit counts to an article-level dataframe.
 
-    Output: DataFrame with one row per sentence and columns:
-      - sentence
+    Expected input df columns:
+      - language (str)
+      - list_of_sentences (list[str])
+
+    Adds output columns (list-valued, one element per sentence):
       - imperative_count
       - short_term_count
       - long_term_count
       - spatial_count
+
+    Returns the same df with new columns added.
     """
-    kw_dict = config.ACTIONABILITY_KEYWORDS.get(lang, config.ACTIONABILITY_KEYWORDS['en'])
+    required = {'language', 'list_of_sentences'}
+    missing = required - set(df.columns)
+    if missing:
+        raise KeyError(f'actionable_keyword_count missing required columns: {sorted(missing)}')
 
     def _count_hits(sentence: str, keywords: list[str]) -> int:
-        s = sentence.lower()
+        s = (sentence or "").lower()
         return sum(1 for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', s))
 
-    df_of_article = pd.DataFrame({'sentence': sentence_list})
-    df_of_article['imperative_count'] = df_of_article['sentence'].apply(
-        lambda s: _count_hits(s, kw_dict['imperative_verbs'])
+    def _per_row_counts(sentence_list: list[str], lang: str) -> dict:
+        kw_dict = _get_kw_dict(lang)
+        # inside _per_row_counts
+        sentence_list = sentence_list if isinstance(sentence_list, list) else []
+
+
+        return {
+            'imperative_count': [_count_hits(s, kw_dict['imperative_verbs']) for s in sentence_list],
+            'short_term_count': [_count_hits(s, kw_dict['short_term']) for s in sentence_list],
+            'long_term_count': [_count_hits(s, kw_dict['long_term']) for s in sentence_list],
+            'spatial_count': [_count_hits(s, kw_dict['spatial_anchors']) for s in sentence_list],
+        }
+
+    counts_expanded = df.apply(
+        lambda r: _per_row_counts(r['list_of_sentences'], r['language']),
+        axis=1,
+        result_type='expand'
     )
-    df_of_article['short_term_count'] = df_of_article['sentence'].apply(
-        lambda s: _count_hits(s, kw_dict['short_term'])
-    )
-    df_of_article['long_term_count'] = df_of_article['sentence'].apply(
-        lambda s: _count_hits(s, kw_dict['long_term'])
-    )
-    df_of_article['spatial_count'] = df_of_article['sentence'].apply(
-        lambda s: _count_hits(s, kw_dict['spatial_anchors'])
-    )
-    return df_of_article
+
+    # Add columns to the same df
+    for c in counts_expanded.columns:
+        df[c] = counts_expanded[c]
+
+    return df
 
 
-def score_actionability_keywords(text: str, lang: str) -> dict:
-    """
-    computing keyword-based actionability sub-scores per dimension
-    following Mostafiz et al. (2022) short-term / long-term distinction
-    and Zguir et al. (2025) three-category taxonomy (supplies, personnel, actions)
 
-    returns dict with:
-      - imperative_score: presence of action verbs (calls to act)
-      - short_term_score: immediate danger / response language
-      - long_term_score:  recovery / resilience / policy language
-      - spatial_score:    geographic anchoring (Xu & Qiang 2022: spatial explicitness)
-      - total_score:      weighted composite
-
-      input: text string (article clean_text)
-    """
-    kw_dict = config.ACTIONABILITY_KEYWORDS.get(lang, config.ACTIONABILITY_KEYWORDS['en'])
-    text_lower = text.lower()
-
-    def _hit_count(keyword_list):
-        return sum(
-            1 for kw in keyword_list
-            if re.search(r'\b' + re.escape(kw) + r'\b', text_lower)
-        )
-
-    imp   = _hit_count(kw_dict['imperative_verbs'])
-    short = _hit_count(kw_dict['short_term'])
-    long_ = _hit_count(kw_dict['long_term'])
-    spat  = _hit_count(kw_dict['spatial_anchors'])
-
-    # weighting: imperative verbs and short-term signals carry most actionability weight
-    # spatial anchors are essential — spatially grounded info spreads further (Xu & Qiang 2022)
-    total = (imp * 0.35) + (short * 0.30) + (long_ * 0.15) + (spat * 0.20)
-
-    return {
-        'imperative_score': imp,
-        'short_term_score': short,
-        'long_term_score':  long_,
-        'spatial_score':    spat,
-        'actionability_score': round(total, 4),
-    }
 
 
 def extract_srl_features(text: str, lang: str) -> dict:
@@ -189,34 +178,6 @@ def extract_srl_features(text: str, lang: str) -> dict:
         'srl_complete': feats['srl_complete'],
     }
 
-
-def extract_named_entities(text: str, lang: str) -> dict:
-    """
-    Extract top named entities from the article using spacy NER.
-    Returns:
-        top_locations: JSON-serialisable list of up to 5 unique GPE/LOC/FAC names
-        top_orgs:      JSON-serialisable list of up to 5 unique ORG names
-    These columns are useful for downstream geographic diffusion analysis (Han et al. 2017)
-    and for validating location dictionary coverage.
-    """
-    feats = _extract_spacy_features(text, lang)
-    return {
-        'top_locations': feats['top_locations'],
-        'top_orgs': feats['top_orgs'],
-    }
-
-
-def count_verb_tenses(text: str, lang: str) -> dict:
-    """
-    Identifies and counts verb tenses (past, present, future) using SpaCy.
-    Accounts for Spanish morphological inflection vs English auxiliary construction.
-    """
-    feats = _extract_spacy_features(text, lang)
-    return {
-        'past_tense': feats['past_tense'],
-        'present_tense': feats['present_tense'],
-        'future_tense': feats['future_tense'],
-    }
 
 
 def _extract_spacy_features(text: str, lang: str) -> dict:
@@ -308,6 +269,87 @@ def _extract_spacy_features(text: str, lang: str) -> dict:
         'top_orgs': json.dumps(top_orgs, ensure_ascii=False),
         **tense_counts,
     }
+
+########
+
+def extract_named_entities(text: str, lang: str) -> dict:
+    """
+    Extract top named entities from the article using spacy NER.
+    Returns:
+        top_locations: JSON-serialisable list of up to 5 unique GPE/LOC/FAC names
+        top_orgs:      JSON-serialisable list of up to 5 unique ORG names
+    These columns are useful for downstream geographic diffusion analysis (Han et al. 2017)
+    and for validating location dictionary coverage.
+    """
+    feats = _extract_spacy_features(text, lang)
+    return {
+        'top_locations': feats['top_locations'],
+        'top_orgs': feats['top_orgs'],
+    }
+
+
+def count_verb_tenses(text: str, lang: str) -> dict:
+    """
+    Identifies and counts verb tenses (past, present, future) using SpaCy.
+    Accounts for Spanish morphological inflection vs English auxiliary construction.
+    """
+    feats = _extract_spacy_features(text, lang)
+    return {
+        'past_tense': feats['past_tense'],
+        'present_tense': feats['present_tense'],
+        'future_tense': feats['future_tense'],
+    }
+###########
+
+
+###################################################
+"""
+def score_actionability_keywords(text: str, lang: str) -> dict:
+    """
+    # computing keyword-based actionability sub-scores per dimension
+    #following Mostafiz et al. (2022) short-term / long-term distinction
+    #and Zguir et al. (2025) three-category taxonomy (supplies, personnel, actions)
+
+    #returns dict with:
+     # - imperative_score: presence of action verbs (calls to act)
+      # - short_term_score: immediate danger / response language
+      # - long_term_score:  recovery / resilience / policy language
+      # - spatial_score:    geographic anchoring (Xu & Qiang 2022: spatial explicitness)
+      # - total_score:      weighted composite
+
+      # input: text string (article clean_text)
+    """
+    kw_dict = config.ACTIONABILITY_KEYWORDS.get(lang, config.ACTIONABILITY_KEYWORDS['en'])
+    text_lower = text.lower()
+
+    def _hit_count(keyword_list):
+        return sum(
+            1 for kw in keyword_list
+            if re.search(r'\b' + re.escape(kw) + r'\b', text_lower)
+        )
+
+    imp   = _hit_count(kw_dict['imperative_verbs'])
+    short = _hit_count(kw_dict['short_term'])
+    long_ = _hit_count(kw_dict['long_term'])
+    spat  = _hit_count(kw_dict['spatial_anchors'])
+
+    # weighting: imperative verbs and short-term signals carry most actionability weight
+    # spatial anchors are essential — spatially grounded info spreads further (Xu & Qiang 2022)
+    total = (imp * 0.35) + (short * 0.30) + (long_ * 0.15) + (spat * 0.20)
+
+    return {
+        'imperative_score': imp,
+        'short_term_score': short,
+        'long_term_score':  long_,
+        'spatial_score':    spat,
+        'actionability_score': round(total, 4),
+    }
+
+"""
+###############################
+
+
+
 
 def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     """
