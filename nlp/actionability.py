@@ -162,7 +162,7 @@ def _get_kw_dict(lang: str) -> dict:
 
 
 def actionable_keyword_count(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
-    """Add keyword hit counts to df_by_sentence (one row per sentence).
+    """Add keyword hit counts to df_by_sentence (one row per sentence), efficiently.
 
     Expected input columns:
       - language (str)
@@ -179,27 +179,59 @@ def actionable_keyword_count(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise KeyError(f'actionable_keyword_count missing required columns: {sorted(missing)}')
 
-    def _count_hits(sentence: str, keywords: list[str]) -> int:
-        s = (sentence or "").lower()
-        return sum(1 for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', s))
+    # Ensure we have strings (avoid repeated fillna/astype inside loops)
+    df_by_sentence['sentence'] = df_by_sentence['sentence'].fillna('').astype(str)
+    df_by_sentence['language'] = df_by_sentence['language'].fillna('en').astype(str)
 
-    def _per_sentence(sentence: str, lang: str) -> dict:
-        kw_dict = _get_kw_dict(lang)
-        return {
-            'imperative_count': _count_hits(sentence, kw_dict['imperative_verbs']),
-            'short_term_count': _count_hits(sentence, kw_dict['short_term']),
-            'long_term_count': _count_hits(sentence, kw_dict['long_term']),
-            'spatial_count': _count_hits(sentence, kw_dict['spatial_anchors']),
-        }
+    # Precompile regex patterns per language + category once
+    # (major speedup vs per-row/per-keyword re.search)
+    patterns: dict[str, dict[str, re.Pattern[str]]] = {}
+    for lang in df_by_sentence['language'].unique():
+        kw = _get_kw_dict(lang)
+        compiled: dict[str, re.Pattern[str]] = {}
 
-    expanded = df_by_sentence.apply(
-        lambda r: _per_sentence(r['sentence'], r['language']),
-        axis=1,
-        result_type='expand'
-    )
+        # Build one alternation regex per category
+        for cat, key in [
+            ('imperative_count', 'imperative_verbs'),
+            ('short_term_count', 'short_term'),
+            ('long_term_count', 'long_term'),
+            ('spatial_count', 'spatial_anchors'),
+        ]:
+            words = [w.strip() for w in kw.get(key, []) if isinstance(w, str) and w.strip()]
+            if not words:
+                compiled[cat] = re.compile(r'(?!)')  # match nothing
+            else:
+                # Sort longest-first to avoid redundant alternation work (minor)
+                words = sorted(set(words), key=len, reverse=True)
+                compiled[cat] = re.compile(r'\b(?:' + '|'.join(map(re.escape, words)) + r')\b', flags=re.IGNORECASE)
 
-    for c in expanded.columns:
-        df_by_sentence[c] = expanded[c]
+        patterns[lang] = compiled
+
+    # Allocate output columns
+    df_by_sentence['imperative_count'] = 0
+    df_by_sentence['short_term_count'] = 0
+    df_by_sentence['long_term_count'] = 0
+    df_by_sentence['spatial_count'] = 0
+
+    # Compute per language using vectorized str.count
+    for lang, idx in df_by_sentence.groupby('language', dropna=False).groups.items():
+        lang = str(lang) if lang is not None else 'en'
+        pats = patterns.get(lang) or patterns.get('en')
+        if pats is None:
+            # If even 'en' isn't present for some reason, just keep zeros
+            continue
+
+        s = df_by_sentence.loc[idx, 'sentence']
+        df_by_sentence.loc[idx, 'imperative_count'] = s.str.count(pats['imperative_count'])
+        df_by_sentence.loc[idx, 'short_term_count'] = s.str.count(pats['short_term_count'])
+        df_by_sentence.loc[idx, 'long_term_count'] = s.str.count(pats['long_term_count'])
+        df_by_sentence.loc[idx, 'spatial_count'] = s.str.count(pats['spatial_count'])
+
+    # Ensure ints (str.count returns int but keep explicit)
+    df_by_sentence['imperative_count'] = df_by_sentence['imperative_count'].astype(int)
+    df_by_sentence['short_term_count'] = df_by_sentence['short_term_count'].astype(int)
+    df_by_sentence['long_term_count'] = df_by_sentence['long_term_count'].astype(int)
+    df_by_sentence['spatial_count'] = df_by_sentence['spatial_count'].astype(int)
 
     return df_by_sentence
 
