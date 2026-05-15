@@ -20,32 +20,18 @@ logger = logging.getLogger(__name__)
 # loading spacy models lazily — only once per language
 _spacy_models = {}
 
-# Maximum character count for spacy processing — truncated at sentence boundary
-# to avoid splitting tokens mid-word (the original text[:1000] approach)
-_SPACY_CHAR_LIMIT = 1200
+
+def split_into_sentences(text: str) -> list[str]:
+    """Split a paragraph into sentences using spaCy Sentencizer.
+
+    Returns a list of sentence strings
+    """
+    nlp = spacy.blank('xx')
+    nlp.add_pipe('sentencizer')
+    doc = nlp(text)
+    return [s.text.strip() for s in doc.sents if s.text.strip()]
 
 
-def _truncate_at_sentence(text: str, max_chars: int = _SPACY_CHAR_LIMIT) -> str:
-    """
-    Truncate text to at most max_chars characters, but always at a sentence boundary.
-    Avoids the text[:1000] antipattern that cuts mid-sentence and breaks dependency
-    parsing and morphological tagging at the boundary.
-    Falls back to hard truncation if no sentence boundary is found within limit.
-    """
-    if len(text) <= max_chars:
-        return text
-    # Find the last sentence-ending punctuation before the limit
-    window = text[:max_chars]
-    last_end = max(
-        window.rfind('. '),
-        window.rfind('! '),
-        window.rfind('? '),
-        window.rfind('.\n'),
-    )
-    if last_end > max_chars // 2:
-        return text[:last_end + 1].strip()
-    # No good boundary found — fall back to hard cut at max_chars
-    return window
 
 
 def _get_spacy(lang: str):
@@ -175,7 +161,7 @@ def _extract_spacy_features(text: str, lang: str) -> dict:
             'future_tense': 0,
         }
 
-    doc = nlp(_truncate_at_sentence(text))
+    doc = nlp(split_into_sentences(text))
 
     # --- SRL-lite (Jurafsky WHO did WHAT WHERE) ---
     agents = [t for t in doc if t.dep_ in ('nsubj', 'nsubjpass')]
