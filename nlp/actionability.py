@@ -20,22 +20,12 @@ logger = logging.getLogger(__name__)
 # loading spacy models lazily — only once per language
 _spacy_models = {}
 
-
-def split_into_sentences(text: str) -> list[str]:
-    """Split a paragraph into sentences using spaCy Sentencizer.
-
-    Returns a list of sentence strings
-    """
-    nlp = spacy.blank('xx')
-    nlp.add_pipe('sentencizer')
-    doc = nlp(text)
-    return [s.text.strip() for s in doc.sents if s.text.strip()]
-
-
-
-
+####        1      ####
 def _get_spacy(lang: str):
-    """loading spacy model for given language, caching after first load"""
+    """loading spacy model for given language, caching after first load
+    input: language code (e.g. 'en', 'es', 'pt')
+    output: spacy model or None
+    """
     if lang not in _spacy_models:
         model_name = config.SPACY_MODELS.get(lang)
         if model_name is None:
@@ -46,6 +36,19 @@ def _get_spacy(lang: str):
             logger.warning(f'spacy model {model_name} not found — run: python -m spacy download {model_name}')
             _spacy_models[lang] = None
     return _spacy_models[lang]
+
+####        2       ####
+def split_into_sentences(text: str) -> list[str]:
+    """Split a paragraph into sentences using spaCy Sentencizer.
+    input: text string (article clean_text)
+    output: Returns a list of sentence strings
+    """
+    nlp = spacy.blank('xx')
+    nlp.add_pipe('sentencizer')
+    doc = nlp(text)
+    return [s.text.strip() for s in doc.sents if s.text.strip()]
+
+
 
 
 def score_actionability_keywords(text: str, lang: str) -> dict:
