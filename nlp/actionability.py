@@ -48,7 +48,16 @@ def split_into_sentences(text: str) -> list[str]:
     doc = nlp(text)
     return [s.text.strip() for s in doc.sents if s.text.strip()]
 
-####        3       ####  IMPORTANT: input probaly needs to be changed not sure what 
+
+#########################################################################################################################
+
+#       3 -  DataFrame Creation ()
+
+#  IMPORTANT: input probaly needs to be changed not sure what
+# df_for_actionability is the summarized df to which only final conclusions are added
+# df_by_sentence is the expanded df with one row per sentence of each article all the intermediate steps will take place in this df 
+#########################################################################################################################
+
 def create_article_df(articles: list[dict]) -> pd.DataFrame: 
     """Create a DataFrame from a list of article metadata dictionaries.
 
@@ -91,7 +100,52 @@ def create_article_df(articles: list[dict]) -> pd.DataFrame:
     return df_for_actionability
 
 
+def make_sentence_level_df(df_articles: pd.DataFrame) -> pd.DataFrame:
+    """Convert an article-level df into a sentence-level df (one row per sentence).
 
+    Expected input columns:
+      - doc_num
+      - flood_id
+      - language
+      - list_of_sentences (list[str])
+
+    Output columns:
+      - doc_num
+      - flood_id
+      - language
+      - sentence
+      - sentence_num (0-based index within article)
+    """
+    required = {'doc_num', 'flood_id', 'language', 'list_of_sentences'}
+    missing = required - set(df_articles.columns)
+    if missing:
+        raise KeyError(f'make_sentence_level_df missing required columns: {sorted(missing)}')
+
+    df = df_articles.loc[:, ['doc_num', 'flood_id', 'language', 'list_of_sentences']].copy()
+
+    # Ensure list type (avoid explode issues)
+    df['list_of_sentences'] = df['list_of_sentences'].apply(
+        lambda x: x if isinstance(x, list) else ([] if pd.isna(x) else [str(x)])
+    )
+
+    # Keep sentence index before exploding
+    df['sentence_num'] = df['list_of_sentences'].apply(lambda sents: list(range(len(sents))))
+    df = df.explode(['list_of_sentences', 'sentence_num'], ignore_index=True)
+
+    df = df.rename(columns={'list_of_sentences': 'sentence'})
+
+    # Optional: drop empty sentences
+    df['sentence'] = df['sentence'].fillna('').astype(str)
+    df_by_sentence = df[df['sentence'].str.strip() != ''].reset_index(drop=True)
+
+    return df_by_sentence
+
+
+#########################################################################################################################
+
+#       4 -  Actionable Keyword count 
+
+#########################################################################################################################
 
 ####  Auxiliary function: Keyword Dictionary
 def _get_kw_dict(lang: str) -> dict:
@@ -107,23 +161,21 @@ def _get_kw_dict(lang: str) -> dict:
     }
 
 
-def actionable_keyword_count(df: pd.DataFrame) -> pd.DataFrame:
-    """Add per-sentence keyword hit counts to an article-level dataframe.
+def actionable_keyword_count(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
+    """Add keyword hit counts to df_by_sentence (one row per sentence).
 
-    Expected input df columns:
+    Expected input columns:
       - language (str)
-      - list_of_sentences (list[str])
+      - sentence (str)
 
-    Adds output columns (list-valued, one element per sentence):
+    Adds output columns (int per row):
       - imperative_count
       - short_term_count
       - long_term_count
       - spatial_count
-
-    Returns the same df with new columns added.
     """
-    required = {'language', 'list_of_sentences'}
-    missing = required - set(df.columns)
+    required = {'language', 'sentence'}
+    missing = required - set(df_by_sentence.columns)
     if missing:
         raise KeyError(f'actionable_keyword_count missing required columns: {sorted(missing)}')
 
@@ -131,30 +183,96 @@ def actionable_keyword_count(df: pd.DataFrame) -> pd.DataFrame:
         s = (sentence or "").lower()
         return sum(1 for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', s))
 
-    def _per_row_counts(sentence_list: list[str], lang: str) -> dict:
+    def _per_sentence(sentence: str, lang: str) -> dict:
         kw_dict = _get_kw_dict(lang)
-        # inside _per_row_counts
-        sentence_list = sentence_list if isinstance(sentence_list, list) else []
-
-
         return {
-            'imperative_count': [_count_hits(s, kw_dict['imperative_verbs']) for s in sentence_list],
-            'short_term_count': [_count_hits(s, kw_dict['short_term']) for s in sentence_list],
-            'long_term_count': [_count_hits(s, kw_dict['long_term']) for s in sentence_list],
-            'spatial_count': [_count_hits(s, kw_dict['spatial_anchors']) for s in sentence_list],
+            'imperative_count': _count_hits(sentence, kw_dict['imperative_verbs']),
+            'short_term_count': _count_hits(sentence, kw_dict['short_term']),
+            'long_term_count': _count_hits(sentence, kw_dict['long_term']),
+            'spatial_count': _count_hits(sentence, kw_dict['spatial_anchors']),
         }
 
-    counts_expanded = df.apply(
-        lambda r: _per_row_counts(r['list_of_sentences'], r['language']),
+    expanded = df_by_sentence.apply(
+        lambda r: _per_sentence(r['sentence'], r['language']),
         axis=1,
         result_type='expand'
     )
 
-    # Add columns to the same df
-    for c in counts_expanded.columns:
-        df[c] = counts_expanded[c]
+    for c in expanded.columns:
+        df_by_sentence[c] = expanded[c]
 
-    return df
+    return df_by_sentence
+
+#########################################################################################################################
+
+#           5 -  SLR Features  
+
+#########################################################################################################################
+
+
+def add_sentence_pos_components(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
+    """Add POS component token lists to df_by_sentence (one row per sentence).
+
+    Expected input df columns:
+      - language (str)
+      - sentence (str)
+
+    Adds output columns (each cell is list[str]):
+      - adjective, adposition, adverb, auxiliary, coordinating conjunction,
+        determiner, interjection, noun, numeral, particle, pronoun, proper noun,
+        punctuation, subordinating conjunction, symbol, verb, other
+    """
+    required = {'language', 'sentence'}
+    missing = required - set(df_by_sentence.columns)
+    if missing:
+        raise KeyError(f'add_sentence_pos_components missing required columns: {sorted(missing)}')
+
+    pos_map = {
+        'ADJ': 'adjective',
+        'ADP': 'adposition',
+        'ADV': 'adverb',
+        'AUX': 'auxiliary',
+        'CCONJ': 'coordinating conjunction',
+        'DET': 'determiner',
+        'INTJ': 'interjection',
+        'NOUN': 'noun',
+        'NUM': 'numeral',
+        'PART': 'particle',
+        'PRON': 'pronoun',
+        'PROPN': 'proper noun',
+        'PUNCT': 'punctuation',
+        'SCONJ': 'subordinating conjunction',
+        'SYM': 'symbol',
+        'VERB': 'verb',
+        'X': 'other',
+    }
+    out_cols = list(pos_map.values())
+
+    # initialize columns so the schema is stable
+    for c in out_cols:
+        if c not in df_by_sentence.columns:
+            df_by_sentence[c] = [[] for _ in range(len(df_by_sentence))]
+
+    # Process by language for efficiency
+    for lang, idx in df_by_sentence.groupby('language', dropna=False).groups.items():
+        lang_norm = (lang or 'en').strip().lower() if isinstance(lang, str) else 'en'
+        nlp = _get_spacy(lang_norm) or spacy.blank('xx')
+
+        sentences = df_by_sentence.loc[idx, 'sentence'].fillna('').astype(str).tolist()
+        docs = list(nlp.pipe(sentences)) if sentences else []
+
+        for row_i, doc in zip(idx, docs):
+            buckets = {c: [] for c in out_cols}
+            for tok in doc:
+                if tok.is_space:
+                    continue
+                col = pos_map.get(tok.pos_)
+                if col is not None:
+                    buckets[col].append(tok.text)
+
+            for c in out_cols:
+                df_by_sentence.at[row_i, c] = buckets[c]
+    return df_by_sentence
 
 
 
