@@ -1,0 +1,11 @@
+pandas
+langid
+sentence-transformers
+numpy
+scikit-learn
+umap-learn
+bertopic
+hdbscan
+spacy
+deep-translator
+lingua-language-detector

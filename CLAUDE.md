@@ -13,10 +13,13 @@ This is initial test data; the pipeline is designed for Americas datasets.
 ## setup
 
 ```bash
-pip install pandas langid sentence-transformers numpy scikit-learn umap-learn bertopic spacy
+pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 python -m spacy download es_core_news_sm
+python -m spacy download pt_core_news_sm
 ```
+
+`deep-translator` is required for translating per-language BERTopic keywords to English in the clustering step. If not installed, translation is skipped and keywords stay in the source language.
 
 ## running
 
@@ -42,7 +45,7 @@ Model/
 │   ├── preprocessing.py       ← language mapping, clean, filter, deduplicate
 │   ├── embeddings.py          ← LaBSE encoding + cross-lingual similarity
 │   ├── actionability.py       ← keyword scoring + SRL features + temporal phase
-│   └── clustering.py          ← UMAP + DBSCAN + BERTopic
+│   └── clustering.py          ← per-language BERTopic → translate → cross-lingual HDBSCAN
 ├── data/
 │   └── url_report_flood_126_relevant_with_text.csv   ← current input
 ├── output/                    ← all pipeline outputs (gitignored)
@@ -103,7 +106,25 @@ Model/
 | preprocessing.py  | Blomeier et al. 2024, El Ouadi 2025               |
 | embeddings.py     | El Ouadi 2025 (LaBSE), Khawaja et al. 2025        |
 | actionability.py  | Mostafiz et al. 2022, Zade et al. 2018, Jurafsky 2014, Zguir et al. 2025 |
-| clustering.py     | Sit et al. 2020 (DBSCAN), Dujardin et al. 2024 (BERTopic) |
+| clustering.py     | Dujardin et al. 2024 (BERTopic), Sit et al. 2020 (HDBSCAN/UMAP) |
+
+## clustering design (two-stage)
+
+The clustering step (`nlp/clustering.py`) avoids grouping articles by language rather than by topic through a two-stage approach:
+
+**Stage 1 — per-language BERTopic**
+BERTopic is fit separately on each language's article slice using the corresponding LaBSE embedding rows. Because c-TF-IDF operates on monolingual text, topic keywords are clean and in the source language (e.g. `evacuación, alerta, zona` for Spanish). Those keywords are then translated to English via `deep-translator` and stored in `topic_keywords_en`.
+
+**Stage 2 — cross-lingual HDBSCAN**
+UMAP + HDBSCAN runs on the full LaBSE embedding matrix (all languages together). LaBSE already maps semantically equivalent content to nearby vectors regardless of source language, so this produces language-agnostic `cross_cluster_id` values — an English and a Spanish article about the same flood event will share the same cluster ID.
+
+**Output columns added by clustering:**
+| column | meaning |
+|--------|---------|
+| `lang_topic_id` | BERTopic topic ID within the per-language model (-1 = outlier) |
+| `lang_topic_keywords` | top-5 keywords in source language |
+| `topic_keywords_en` | top-5 keywords translated to English |
+| `cross_cluster_id` | language-agnostic HDBSCAN cluster (-1 = noise/outlier) |
 
 ## important constraints
 
