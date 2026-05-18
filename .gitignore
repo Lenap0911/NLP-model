@@ -10,6 +10,12 @@ env/
 # Regenerate with: python run_nlp_pipeline.py (skip-embed flag reuses this once generated)
 output/labse_embeddings.npy
 
+# Complementary pipeline outputs — scraped data, regenerated per run
+complementary/output/*.json
+complementary/output/*.csv
+complementary/analysis/reports/*.json
+complementary/analysis/reports/*.csv
+
 # Logs: machine-specific runtime noise, changes every run
 logs/
 
