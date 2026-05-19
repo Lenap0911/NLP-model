@@ -200,6 +200,137 @@ def search_outlet_archive(
     return candidates
 
 
+_CDX_API = 'https://web.archive.org/cdx/search/cdx'
+_CDX_WAYBACK = 'https://web.archive.org/web/{}if_/{}'
+
+
+def _cdx_date(iso_date: str) -> str:
+    """convert 'YYYY-MM-DD' to Wayback CDX 'YYYYMMDD'"""
+    return iso_date.replace('-', '')
+
+
+def fetch_cdx_candidates(
+    outlet: dict,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    """
+    Query the Wayback Machine CDX API for archived URLs matching the outlet's
+    cdx_archive config, filter by flood slug, and return candidate dicts whose
+    URL points to the archived copy (wayback machine URL).
+
+    Requires outlet to have a 'cdx_archive' key with:
+      path_prefix  – e.g. "eltiempo.com/colombia/"
+      cdx_limit    – max CDX rows to fetch (default 2000)
+    """
+    cdx_cfg = outlet.get('cdx_archive')
+    if not cdx_cfg:
+        return []
+
+    domain      = outlet['domain']
+    lang        = outlet.get('language', 'es')
+    path_prefix = cdx_cfg['path_prefix'].rstrip('/') + '/*'
+    limit       = cdx_cfg.get('cdx_limit', 2000)
+
+    params = {
+        'url': path_prefix,
+        'output': 'json',
+        'from': _cdx_date(start_date),
+        'to': _cdx_date(end_date),
+        'filter': 'statuscode:200',
+        'fl': 'original,timestamp',
+        'collapse': 'urlkey',
+        'limit': limit,
+    }
+
+    logger.info(
+        f'[{domain}] CDX query: {path_prefix} ({start_date} to {end_date}), '
+        f'limit={limit}'
+    )
+
+    try:
+        resp = requests.get(_CDX_API, params=params, timeout=60)
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception as e:
+        logger.warning(f'[{domain}] CDX API failed: {e}')
+        return []
+
+    if len(rows) <= 1:
+        logger.info(f'[{domain}] CDX returned 0 results')
+        return []
+
+    candidates = []
+    seen: set[str] = set()
+    for original, timestamp in rows[1:]:
+        if not _url_looks_like_flood(original, lang):
+            continue
+        wayback_url = _CDX_WAYBACK.format(timestamp, original)
+        if wayback_url in seen:
+            continue
+        seen.add(wayback_url)
+        candidates.append({
+            'url': wayback_url,
+            'domain': domain,
+            'language': lang,
+            'country': outlet['country'],
+            'outlet_type': outlet.get('type', 'unknown'),
+            'page_title': '',
+            'pub_date': None,
+            'flood_hits_rss': 0,
+            'source': 'cdx',
+        })
+
+    logger.info(
+        f'[{domain}] CDX: {len(rows)-1} archived URLs → '
+        f'{len(candidates)} passed flood slug filter'
+    )
+    return candidates
+
+
+def build_cdx_candidates(
+    outlets: list[dict],
+    flood_id: int,
+) -> list[dict]:
+    """
+    Run CDX archive queries for all outlets that have a 'cdx_archive' config.
+    Returns deduplicated candidate list.
+    """
+    event = cfg.FLOOD_EVENTS.get(flood_id, {})
+    start_date = event.get('start_date')
+    end_date   = event.get('end_date')
+    if not start_date or not end_date:
+        return []
+
+    enabled = [
+        o for o in outlets
+        if o.get('enabled', True)
+        and o.get('language') in cfg.TARGET_LANGUAGES
+        and o.get('cdx_archive')
+    ]
+
+    if not enabled:
+        logger.info(f'flood_id={flood_id}: no outlets with cdx_archive config — skipping CDX step')
+        return []
+
+    all_candidates: list[dict] = []
+    seen_urls: set[str] = set()
+
+    for outlet in enabled:
+        candidates = fetch_cdx_candidates(outlet, start_date, end_date)
+        for c in candidates:
+            if c['url'] not in seen_urls:
+                seen_urls.add(c['url'])
+                all_candidates.append(c)
+        time.sleep(cfg.REQUEST_DELAY_S)
+
+    logger.info(
+        f'flood_id={flood_id}: CDX scraping complete — '
+        f'{len(all_candidates)} unique candidate URLs'
+    )
+    return all_candidates
+
+
 def build_archive_candidates(
     outlets: list[dict],
     flood_id: int,

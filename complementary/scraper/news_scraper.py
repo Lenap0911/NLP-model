@@ -10,21 +10,55 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def _get_article(url: str, language: str, timeout: int) -> Optional[object]:
-    """download and parse one URL with newspaper3k, return Article or None"""
+def _fetch_html(url: str, timeout: int) -> Optional[str]:
+    """fetch raw HTML with a browser-like User-Agent; returns None on error"""
+    try:
+        import requests
+        resp = requests.get(
+            url,
+            timeout=timeout,
+            headers={'User-Agent': 'Mozilla/5.0 (compatible; FloodNewsBot/1.0)'},
+        )
+        resp.raise_for_status()
+        return resp.text
+    except Exception as e:
+        logger.warning(f'HTTP fetch failed [{url}]: {e}')
+        return None
+
+
+def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
+    """extract main article text with trafilatura; returns None if unavailable or empty"""
+    try:
+        import trafilatura
+        text = trafilatura.extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=False,
+        )
+        return text or None
+    except ImportError:
+        return None
+    except Exception as e:
+        logger.debug(f'trafilatura failed [{url}]: {e}')
+        return None
+
+
+def _extract_with_newspaper(url: str, language: str, timeout: int) -> tuple[Optional[str], Optional[str]]:
+    """extract text+title with newspaper3k; returns (text, title) or (None, None)"""
     try:
         import newspaper
     except ImportError:
-        raise ImportError('newspaper3k not installed — run: pip install newspaper3k')
-
+        return None, None
     try:
-        article = newspaper.Article(url, language=language, request_timeout=timeout)
-        article.download()
-        article.parse()
-        return article
+        art = newspaper.Article(url, language=language, request_timeout=timeout)
+        art.download()
+        art.parse()
+        return (art.text or None), (art.title or None)
     except Exception as e:
-        logger.warning(f'scrape failed [{url}]: {e}')
-        return None
+        logger.debug(f'newspaper3k failed [{url}]: {e}')
+        return None, None
 
 
 def scrape_article(
@@ -35,33 +69,31 @@ def scrape_article(
     """
     Fetch full article text for one candidate URL.
 
-    candidate: dict from rss_poller.poll_outlet — must have 'url' and 'language'
-    min_chars: drop articles shorter than this (mirrors CC MIN_CHAR_LENGTH)
-    timeout:   request timeout in seconds
-
-    Returns a dict with all scraped fields, or None if the article fails
-    quality gating or cannot be downloaded.
+    Tries trafilatura first (better at JS-heavy sites like G1), falls back to
+    newspaper3k. candidate must have 'url' and 'language' keys.
+    Returns a formatted dict or None if the article is too short.
     """
     url = candidate['url']
     lang = candidate.get('language', 'en')
 
-    article = _get_article(url, lang, timeout)
-    if article is None:
-        return None
+    html = _fetch_html(url, timeout)
+    title = candidate.get('page_title', '')
+    text = None
 
-    text = (article.text or '').strip()
-    if len(text) < min_chars:
-        logger.debug(f'too short ({len(text)} chars) — dropping {url}')
-        return None
+    if html:
+        text = _extract_with_trafilatura(html, url)
 
-    title = (article.title or candidate.get('page_title', '')).strip()
+    if not text:
+        np_text, np_title = _extract_with_newspaper(url, lang, timeout)
+        text = np_text
+        if np_title and not title:
+            title = np_title
+
+    if not text or len(text) < min_chars:
+        logger.debug(f'too short or empty — dropping {url}')
+        return None
 
     pub_date = candidate.get('pub_date')
-    if pub_date is None and article.publish_date:
-        raw = article.publish_date
-        if raw.tzinfo is None:
-            raw = raw.replace(tzinfo=timezone.utc)
-        pub_date = raw
 
     return {
         'url': url,

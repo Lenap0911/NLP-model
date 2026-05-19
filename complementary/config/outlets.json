@@ -102,6 +102,61 @@
       "notes": "G1 CE section RSS — 100 entries. Northeast Brazil seasonal flooding."
     },
     {
+      "name": "G1 Paraná",
+      "domain": "g1.globo.com",
+      "language": "pt",
+      "country": "Brazil",
+      "type": "regional_tv_digital",
+      "enabled": true,
+      "rss_url": "https://g1.globo.com/rss/g1/pr/parana/",
+      "archive_search": null,
+      "notes": "G1 PR section RSS — 100 entries. Paraná floods frequently, especially Curitiba metro."
+    },
+    {
+      "name": "G1 Alagoas",
+      "domain": "g1.globo.com",
+      "language": "pt",
+      "country": "Brazil",
+      "type": "regional_tv_digital",
+      "enabled": true,
+      "rss_url": "https://g1.globo.com/rss/g1/al/alagoas/",
+      "archive_search": null,
+      "notes": "G1 AL section RSS — 100 entries. Alagoas hit by severe floods in 2022."
+    },
+    {
+      "name": "G1 Maranhão",
+      "domain": "g1.globo.com",
+      "language": "pt",
+      "country": "Brazil",
+      "type": "regional_tv_digital",
+      "enabled": true,
+      "rss_url": "https://g1.globo.com/rss/g1/ma/maranhao/",
+      "archive_search": null,
+      "notes": "G1 MA section RSS — 100 entries. Northeast Brazil rainy season flooding."
+    },
+    {
+      "name": "G1 Piauí",
+      "domain": "g1.globo.com",
+      "language": "pt",
+      "country": "Brazil",
+      "type": "regional_tv_digital",
+      "enabled": true,
+      "rss_url": "https://g1.globo.com/rss/g1/pi/piaui/",
+      "archive_search": null,
+      "notes": "G1 PI section RSS — 100 entries. Piauí semi-arid region with seasonal flood events."
+    },
+    {
+      "name": "G1 Pará",
+      "domain": "g1.globo.com",
+      "language": "pt",
+      "country": "Brazil",
+      "type": "regional_tv_digital",
+      "enabled": true,
+      "rss_url": "https://g1.globo.com/rss/g1/pa/para/",
+      "archive_search": null,
+      "notes": "G1 PA section RSS — 100 entries. Amazon basin flooding, annual flood season."
+    },
+    {
       "name": "BBC Brasil",
       "domain": "bbc.com",
       "language": "pt",
@@ -181,7 +236,26 @@
       "enabled": true,
       "rss_url": "https://www.eltiempo.com/rss/colombia.xml",
       "archive_search": null,
-      "notes": "Colombia's newspaper of record. archive_search disabled — search URL returns 404."
+      "cdx_archive": {
+        "path_prefix": "eltiempo.com/colombia/",
+        "cdx_limit": 5000
+      },
+      "notes": "Colombia's newspaper of record. archive_search disabled — search URL returns 404. CDX gives ~91 flood URLs for 2022."
+    },
+    {
+      "name": "RCN Radio (Colombia)",
+      "domain": "rcnradio.com",
+      "language": "es",
+      "country": "Colombia",
+      "type": "national_radio_digital",
+      "enabled": true,
+      "rss_url": null,
+      "archive_search": null,
+      "cdx_archive": {
+        "path_prefix": "rcnradio.com/colombia/",
+        "cdx_limit": 2000
+      },
+      "notes": "Major Colombian radio/news outlet. RSS empty. CDX gives ~65 flood URLs for 2022."
     },
     {
       "name": "El Colombiano",

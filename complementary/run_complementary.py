@@ -25,7 +25,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from complementary.config import scrape_config as cfg
 from complementary.scraper.rss_poller import poll_all_outlets
-from complementary.scraper.archive_scraper import build_archive_candidates
+from complementary.scraper.archive_scraper import build_archive_candidates, build_cdx_candidates
 from complementary.scraper.news_scraper import scrape_all
 from complementary.scraper.formatter import format_all
 
@@ -71,16 +71,25 @@ def run(flood_id: int | None, dry_run: bool = False) -> None:
     )
     logger.info(f'RSS: {len(rss_candidates)} candidates')
 
-    # ── step 2: archive scraping (historical articles) ────────────────────────
+    # ── step 2a: site-search archive scraping (historical articles) ─────────────
     archive_candidates: list[dict] = []
     if flood_id is not None:
-        logger.info('=== STEP 2: ARCHIVE SCRAPING ===')
+        logger.info('=== STEP 2a: ARCHIVE SCRAPING (site search) ===')
         archive_candidates = build_archive_candidates(active, flood_id=flood_id)
-        logger.info(f'archive: {len(archive_candidates)} candidates')
+        logger.info(f'archive (site search): {len(archive_candidates)} candidates')
     else:
-        logger.info('=== STEP 2: ARCHIVE SCRAPING — skipped (no flood_id) ===')
+        logger.info('=== STEP 2a: ARCHIVE SCRAPING — skipped (no flood_id) ===')
 
-    all_candidates = rss_candidates + archive_candidates
+    # ── step 2b: Wayback Machine CDX archive scraping ─────────────────────────
+    cdx_candidates: list[dict] = []
+    if flood_id is not None:
+        logger.info('=== STEP 2b: CDX ARCHIVE SCRAPING (Wayback Machine) ===')
+        cdx_candidates = build_cdx_candidates(all_outlets, flood_id=flood_id)
+        logger.info(f'archive (CDX): {len(cdx_candidates)} candidates')
+    else:
+        logger.info('=== STEP 2b: CDX ARCHIVE SCRAPING — skipped (no flood_id) ===')
+
+    all_candidates = rss_candidates + archive_candidates + cdx_candidates
 
     # deduplicate by URL before scraping
     seen: set[str] = set()
