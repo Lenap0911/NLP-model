@@ -121,7 +121,6 @@ def count_verb_tenses(text: str, lang: str) -> dict:
 
 
 ###################################################
-"""
 def score_actionability_keywords(text: str, lang: str) -> dict:
     """
     # computing keyword-based actionability sub-scores per dimension
@@ -163,6 +162,5 @@ def score_actionability_keywords(text: str, lang: str) -> dict:
         'actionability_score': round(total, 4),
     }
 
-"""
-###############################
+
 
