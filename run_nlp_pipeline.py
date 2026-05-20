@@ -66,7 +66,6 @@ def main(input_path: str = None, skip_embed: bool = False):
     from nlp.preprocessing import run_preprocessing
     from nlp.embeddings    import run_embeddings, load_embeddings
     from nlp.actionability import run_actionability
-    from nlp.clustering    import run_clustering
     from nlp.authority     import run_authority
     from nlp.framing       import run_framing
 
@@ -118,15 +117,9 @@ def main(input_path: str = None, skip_embed: bool = False):
     logger.info('=== STEP 5: FRAME CLASSIFICATION ===')
     df = run_framing(df)
 
-    # ── step 6: clustering ────────────────────────────────────────────────────
-    # predefined group distributions (Global North/South, country, domain)
-    # + data-driven HDBSCAN on actionability features
-    # topic modeling is optional — call run_topic_modeling(df, embeddings) separately
-    logger.info('=== STEP 6: CLUSTERING ===')
-    df = run_clustering(df)
-
-    # ── step 7: saving enriched dataset ──────────────────────────────────────
-    logger.info('=== STEP 7: SAVING ENRICHED DATASET ===')
+    # ── step 6: saving enriched dataset ──────────────────────────────────────
+    # clustering and visualizations run separately in clustering_analysis.ipynb
+    logger.info('=== STEP 6: SAVING ENRICHED DATASET ===')
     df.to_csv(config.ENRICHED_CSV_PATH, index=False)
     logger.info(f'enriched dataset saved -> {config.ENRICHED_CSV_PATH}')
     logger.info(f'final shape: {df.shape}')

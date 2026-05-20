@@ -1,16 +1,17 @@
 # nlp/authority.py
-# source authority scoring for flood news articles
+# source authority classification grounded in the actual dataset domains
 # theoretical grounding:
 #   Gordon (2000): authority as a dimension of source credibility in news
 #   Khawaja et al. (2025): Global North vs Global South media framing
-#   El Ouadi (2025): domain-level credibility in cross-lingual flood comparison
 #
-# Two dimensions scored per article:
-#   1. scope:       local / regional / national / international
-#   2. credibility: tier 1 (major newswire/public broadcaster) to tier 3 (unknown)
+# Two dimensions per article:
+#   scope:       government | national | regional | local | ngo
+#   source_type: government_agency | ngo | national_news | regional_news |
+#                local_news | radio | unknown
 #
-# Scores are heuristic and domain-based — sufficient for comparative analysis
-# across EN/ES/PT corpora without requiring external APIs.
+# Domain lookup built from verified_articles_clean_text.csv (34 unique domains).
+# Unknown domains fall back to heuristics (.gov/.gob → government_agency,
+# .org → ngo, everything else → unknown/local).
 
 import re
 import importlib
@@ -22,185 +23,272 @@ config = importlib.import_module('config.nlp_config')
 logger = logging.getLogger(__name__)
 
 
-# ── Scope classification ───────────────────────────────────────────────────────
-# Domains are assigned a scope label.  Any domain not in any set defaults to
-# "local" — the most conservative assumption.
+# ── Per-domain lookup (built from actual dataset) ─────────────────────────────
+# Keys are bare domains (no www. prefix).
+# scope:       government | national | regional | local | ngo
+# source_type: government_agency | ngo | national_news | regional_news |
+#              local_news | radio | unknown
 
-_INTERNATIONAL_DOMAINS = frozenset({
-    # Newswires + global English
-    'reuters.com', 'apnews.com', 'bbc.com', 'bbc.co.uk', 'theguardian.com',
-    'aljazeera.com', 'aljazeera.net', 'france24.com', 'dw.com', 'euronews.com',
-    'voanews.com', 'rt.com', 'bloomberg.com', 'time.com', 'newsweek.com',
-    # International humanitarian / disaster
-    'reliefweb.int', 'floodlist.com', 'ifrc.org', 'unocha.org',
-    'preventionweb.net', 'gdacs.org',
-    # International wire services in Spanish/Portuguese
-    'efe.com', 'lusa.pt',
-})
-
-_NATIONAL_DOMAINS: dict[str, frozenset] = {
-    # USA
-    'USA': frozenset({
-        'foxnews.com', 'cnn.com', 'nbcnews.com', 'cbsnews.com', 'abcnews.go.com',
-        'msnbc.com', 'usatoday.com', 'washingtonpost.com', 'nytimes.com',
-        'latimes.com', 'npr.org', 'thehill.com', 'politico.com', 'univision.com',
-        'telemundo.com', 'weather.com', 'accuweather.com',
-    }),
-    # Spain
-    'ESP': frozenset({
-        'elpais.com', 'elmundo.es', 'abc.es', 'lavanguardia.com',
-        '20minutos.es', 'rtve.es', 'elconfidencial.com', 'eldiario.es',
-    }),
-    # Brazil
-    'BRA': frozenset({
-        'globo.com', 'uol.com.br', 'folha.uol.com.br', 'g1.globo.com',
-        'oglobo.globo.com', 'estadao.com.br', 'r7.com', 'noticias.uol.com.br',
-    }),
-    # Argentina
-    'ARG': frozenset({
-        'infobae.com', 'lanacion.com.ar', 'clarin.com', 'ambito.com',
-    }),
-    # Colombia
-    'COL': frozenset({
-        'semana.com', 'eltiempo.com', 'elespectador.com', 'caracol.com.co',
-    }),
-    # Mexico
-    'MEX': frozenset({
-        'milenio.com', 'eluniversal.com.mx', 'excelsior.com.mx',
-        'reforma.com', 'jornada.com.mx',
-    }),
-    # Peru
-    'PER': frozenset({'elcomercio.pe', 'larepublica.pe', 'andina.pe'}),
-    # Bolivia
-    'BOL': frozenset({'lostiempos.com', 'eldeber.com.bo', 'erbol.com.bo'}),
-    # Honduras
-    'HND': frozenset({'laprensa.hn', 'elheraldo.hn', 'proceso.hn'}),
-    # Costa Rica
-    'CRI': frozenset({'nacion.com', 'crhoy.com', 'teletica.com'}),
-    # Dominican Republic
-    'DOM': frozenset({'listindiario.com', 'diariolibre.com', 'elcaribe.com.do'}),
+_DOMAIN_LOOKUP: dict[str, dict[str, str]] = {
+    # ── Brazil — government ───────────────────────────────────────────────────
+    'www2.cemaden.gov.br': {
+        'scope': 'government',
+        'source_type': 'government_agency',
+        # CEMADEN: national early-warning centre — not journalism
+    },
+    # ── Panama — government ───────────────────────────────────────────────────
+    'miambiente.gob.pa': {
+        'scope': 'government',
+        'source_type': 'government_agency',
+        # Panama Ministry of Environment
+    },
+    # ── Panama — NGO ──────────────────────────────────────────────────────────
+    'cruzroja.org.pa': {
+        'scope': 'ngo',
+        'source_type': 'ngo',
+        # Panama Red Cross
+    },
+    # ── Brazil — national news ────────────────────────────────────────────────
+    'istoedinheiro.com.br': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # IstoÉ Dinheiro — national business magazine
+    },
+    # ── Mexico — national news ────────────────────────────────────────────────
+    'elfinanciero.com.mx': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # El Financiero — major national financial daily
+    },
+    'piedepagina.mx': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # Pie de Página — national investigative journalism
+    },
+    # ── Colombia — national news ───────────────────────────────────────────────
+    'semana.com': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # Semana — flagship Colombian weekly news magazine
+    },
+    'larepublica.co': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # La República — national business newspaper
+    },
+    'elespectador.com': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # El Espectador — one of Colombia's oldest national dailies
+    },
+    # ── Peru — national news ───────────────────────────────────────────────────
+    'expreso.com.pe': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # Expreso — national daily, Lima
+    },
+    # ── Brazil — regional news ────────────────────────────────────────────────
+    'diariodepernambuco.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Diário de Pernambuco — oldest newspaper in the Americas (est. 1825), Pernambuco state
+    },
+    'em.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Estado de Minas — leading Minas Gerais state newspaper
+    },
+    'folhams.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Folha MS — Mato Grosso do Sul state newspaper
+    },
+    'jornaldaparaiba.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Jornal da Paraíba — Paraíba state newspaper
+    },
+    'agazeta.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # A Gazeta — Espírito Santo state newspaper
+    },
+    'ibahia.com': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # iBahia — Bahia state news portal (Grupo A Tarde)
+    },
+    'diariodonordeste.verdesmares.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Diário do Nordeste — major Ceará / northeast Brazil newspaper
+    },
+    'folhape.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Folha de Pernambuco — Pernambuco state newspaper
+    },
+    'pernambuco.com': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Pernambuco.com — Pernambuco state news portal
+    },
+    'opovo.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # O Povo — leading Ceará state newspaper (est. 1928)
+    },
+    'hojeemdia.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Hoje em Dia — Minas Gerais regional newspaper
+    },
+    'gp1.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # GP1 — Piauí state news portal
+    },
+    'gazetaweb.com': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Gazeta Web — Alagoas state news portal
+    },
+    'seculodiario.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Século Diário — Espírito Santo regional news portal
+    },
+    # ── Colombia — regional news ───────────────────────────────────────────────
+    'elcolombiano.com': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # El Colombiano — Antioquia/Medellín regional newspaper (large regional)
+    },
+    # ── Peru — regional news ───────────────────────────────────────────────────
+    'elpueblo.com.pe': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # El Pueblo — Arequipa regional newspaper
+    },
+    # ── Ecuador — radio ───────────────────────────────────────────────────────
+    'radiohuancavilca.com.ec': {
+        'scope': 'regional',
+        'source_type': 'radio',
+        # Radio Huancavilca — Guayaquil regional radio station
+    },
+    # ── Brazil — local news ───────────────────────────────────────────────────
+    'bhaz.com.br': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # BHaz — Belo Horizonte city lifestyle/news portal
+    },
+    'campograndenews.com.br': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # Campo Grande News — Campo Grande city news
+    },
+    'faroldabahia.com.br': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # Farol da Bahia — Salvador/Bahia local news portal
+    },
+    'a12.com': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # A12 — Catholic news portal, São Paulo
+    },
+    'jornalinterior.com.br': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # Jornal Interior — São Paulo interior region local newspaper
+    },
+    # ── Bolivia — local news ───────────────────────────────────────────────────
+    'lavozdetarija.com': {
+        'scope': 'local',
+        'source_type': 'local_news',
+        # La Voz de Tarija — Tarija city/department local newspaper
+    },
+    # ── remaining domains (NaN-country rows in dataset) ───────────────────────
+    'folhavitoria.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Folha Vitória — Espírito Santo state news portal
+    },
+    'poder360.com.br': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # Poder360 — major Brazilian national political journalism portal
+    },
+    'folhadematogrosso.com.br': {
+        'scope': 'regional',
+        'source_type': 'regional_news',
+        # Folha de Mato Grosso — Mato Grosso state newspaper
+    },
+    'sudaca.pe': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # Sudaca — Peruvian investigative/social journalism outlet
+    },
+    'brasil.elpais.com': {
+        'scope': 'national',
+        'source_type': 'national_news',
+        # El País Brasil — Brazilian edition of Spanish international newspaper
+    },
 }
 
-# ── Credibility tiers ─────────────────────────────────────────────────────────
-# Tier 1: major newswires, public broadcasters, established nationals
-# Tier 2: established regional/local journalism, institutional sources
-# Tier 3: unknown or low-signal domains
-
-_TIER1_DOMAINS = frozenset({
-    'reuters.com', 'apnews.com', 'bbc.com', 'bbc.co.uk', 'theguardian.com',
-    'nytimes.com', 'washingtonpost.com', 'latimes.com', 'npr.org',
-    'efe.com', 'lusa.pt', 'france24.com', 'dw.com',
-    'rtve.es', 'elpais.com', 'globo.com', 'folha.uol.com.br', 'estadao.com.br',
-    'g1.globo.com', 'eltiempo.com', 'elespectador.com', 'semana.com',
-    'nacion.com', 'laprensa.hn', 'listindiario.com', 'andina.pe', 'elcomercio.pe',
-    'lostiempos.com', 'infobae.com', 'lanacion.com.ar', 'clarin.com',
-    'reliefweb.int', 'ifrc.org', 'unocha.org',
-})
-
-_TIER2_DOMAINS_RE = re.compile(
-    r'\.(gov|gob|edu|org|mil)(\.[a-z]{2})?$', re.IGNORECASE
-)
+# heuristic fallbacks for domains not in the lookup
+_GOV_RE  = re.compile(r'\.(gov|gob)(\.[a-z]{2})?$', re.IGNORECASE)
+_NGO_RE  = re.compile(r'\.org(\.[a-z]{2})?$', re.IGNORECASE)
 
 
-def classify_scope(domain: str, country_iso: str = None) -> str:
+def classify_source(domain: str) -> dict[str, str]:
     """
-    Return scope label for a given domain: 'international', 'national', 'local'.
-    country_iso is the ISO code of the flood event (to look up national domain list).
+    Return scope and source_type for a domain.
+    Uses exact lookup for known dataset domains, heuristics for unknowns.
     """
-    domain = domain.lower().removeprefix('www.')
-    if domain in _INTERNATIONAL_DOMAINS:
-        return 'international'
-    if country_iso and domain in _NATIONAL_DOMAINS.get(country_iso, frozenset()):
-        return 'national'
-    # Check all country lists if no ISO provided
-    if not country_iso:
-        for nat_set in _NATIONAL_DOMAINS.values():
-            if domain in nat_set:
-                return 'national'
-    return 'local'
+    domain = domain.lower().strip()
+    # strip www / www2 / www20 etc. prefixes
+    domain = re.sub(r'^www\d*\.', '', domain)
 
+    if domain in _DOMAIN_LOOKUP:
+        return _DOMAIN_LOOKUP[domain]
 
-def classify_credibility(domain: str) -> int:
-    """
-    Return credibility tier (1, 2, or 3) for a given domain.
-    Tier 1: major newswires / established nationals
-    Tier 2: government / educational / NGO domains
-    Tier 3: unknown
-    """
-    domain = domain.lower().removeprefix('www.')
-    if domain in _TIER1_DOMAINS:
-        return 1
-    if _TIER2_DOMAINS_RE.search(domain):
-        return 2
-    return 3
+    # heuristic fallbacks
+    if _GOV_RE.search(domain):
+        return {'scope': 'government', 'source_type': 'government_agency'}
+    if _NGO_RE.search(domain):
+        return {'scope': 'ngo', 'source_type': 'ngo'}
 
-
-def score_authority(domain: str, country_iso: str = None) -> dict:
-    """
-    Return authority scores for one article given its domain.
-    Returns:
-        scope:              'international' | 'national' | 'local'
-        scope_score:        3=international, 2=national, 1=local (for numeric analysis)
-        credibility_tier:   1 (highest) – 3 (lowest)
-        authority_score:    composite = scope_score * (4 - credibility_tier)
-                            range [1, 9] where 9 = international tier-1
-    """
-    scope = classify_scope(domain, country_iso)
-    tier  = classify_credibility(domain)
-
-    scope_score = {'international': 3, 'national': 2, 'local': 1}.get(scope, 1)
-    authority_score = scope_score * (4 - tier)  # tier 1 → 3pts, tier 3 → 1pt
-
-    return {
-        'scope':            scope,
-        'scope_score':      scope_score,
-        'credibility_tier': tier,
-        'authority_score':  authority_score,
-    }
+    return {'scope': 'local', 'source_type': 'unknown'}
 
 
 def run_authority(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add authority columns to the dataframe.
-    Expects 'domain' column (added by stage_08). Uses 'country' column for ISO lookup.
+    Adds scope and source_type columns to the dataframe.
+    Extracts domain from url if a domain column is not already present.
     """
-    logger.info('scoring source authority...')
+    logger.info('classifying source authority...')
 
-    # Build a flood_id -> ISO map from the country column if available
-    # We use the domain column directly since that's already extracted
+    df = df.copy()
+
     if 'domain' not in df.columns:
-        logger.warning("'domain' column missing — authority scoring skipped")
-        df['scope'] = 'unknown'
-        df['scope_score'] = 0
-        df['credibility_tier'] = 3
-        df['authority_score'] = 0
-        return df
+        if 'url' not in df.columns:
+            logger.warning('neither domain nor url column found — authority skipped')
+            df['scope'] = 'unknown'
+            df['source_type'] = 'unknown'
+            return df
+        df['domain'] = df['url'].str.extract(r'https?://(?:www\.)?([^/]+)/')
 
-    # Derive ISO from country column heuristically if needed
-    # (country is the full country name from flood_crawl.csv)
-    _country_to_iso = {
-        'united states of america': 'USA',
-        'colombia': 'COL',
-        'brazil': 'BRA',
-        'argentina': 'ARG',
-        'mexico': 'MEX',
-        'spain': 'ESP',
-        'peru': 'PER',
-        'bolivia (plurinational state of)': 'BOL',
-        'honduras': 'HND',
-        'costa rica': 'CRI',
-        'dominican republic': 'DOM',
-    }
+    authority_rows = df['domain'].apply(
+        lambda d: classify_source(str(d) if pd.notna(d) else '')
+    ).apply(pd.Series)
 
-    def _get_iso(row):
-        country = str(row.get('country', '')).lower()
-        return _country_to_iso.get(country)
+    df['scope']       = authority_rows['scope']
+    df['source_type'] = authority_rows['source_type']
 
-    authority_rows = df.apply(
-        lambda r: score_authority(str(r.get('domain', '')), _get_iso(r)),
-        axis=1,
-        result_type='expand',
-    )
-    df = pd.concat([df, authority_rows], axis=1)
-    logger.info('authority scoring complete')
+    scope_dist  = df['scope'].value_counts().to_dict()
+    type_dist   = df['source_type'].value_counts().to_dict()
+    logger.info(f'scope distribution: {scope_dist}')
+    logger.info(f'source_type distribution: {type_dist}')
+    logger.info('authority classification complete')
     return df
