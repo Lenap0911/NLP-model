@@ -11,6 +11,7 @@ import re
 import logging
 import importlib
 
+import numpy as np
 import pandas as pd
 import spacy
 
@@ -491,49 +492,112 @@ def extract_srl_features(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
 
 def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     """
-    running the full actionability enrichment pipeline on preprocessed dataframe
-    adds columns: imperative_score, short_term_score, long_term_score,
-                  spatial_score, actionability_score,
-                  has_agent, has_action, has_location, srl_complete,
-                  past_tense, present_tense, future_tense, past_tense_ratio
+    Full actionability pipeline: article df → sentence-level df with actionability scores.
+
+    Input: preprocessed df with columns:
+        article_id (auto-generated if absent), flood_id, country, language, clean_text
+
+    Output: df_by_sentence with all feature columns plus:
+        - actionability_probability (float 0–1)
+        - actionability_score (int: 0=none, 1=low 0–0.5, 2=high >0.5)
     """
-    logger.info('scoring actionability...')
+    logger.info('running actionability pipeline...')
 
-    # 1. Keyword-based scoring (fast, no model needed)
-    kw_scores = df.apply(
-        lambda r: score_actionability_keywords(r['clean_text'], r['language']),
-        axis=1,
-        result_type='expand'
+    # ensure article_id exists
+    if 'article_id' not in df.columns:
+        df = df.copy()
+        df['article_id'] = range(len(df))
+
+    # 1. article-level df with sentence lists
+    articles = df.to_dict(orient='records')
+    df_articles = create_article_df(articles)
+
+    # 2. sentence-level df
+    df_by_sentence = make_sentence_level_df(df_articles)
+    print(f'[actionability] sentence df shape: {df_by_sentence.shape}')
+    print(f'[actionability] sentence df columns: {list(df_by_sentence.columns)}')
+
+    # 3. load + verify spacy models for every language present
+    for lang in df_by_sentence['language'].dropna().unique():
+        lang_norm = str(lang).strip().lower()
+        model = _get_spacy(lang_norm)
+        model_name = config.SPACY_MODELS.get(lang_norm, 'not configured')
+        if model is not None:
+            print(f'[actionability] spacy model loaded successfully: {model_name} (lang={lang_norm})')
+        else:
+            print(f'[actionability] WARNING: spacy model unavailable for lang={lang_norm} ({model_name})')
+
+    # 4. keyword counts (regex-based)
+    df_by_sentence = actionable_keyword_count(df_by_sentence)
+
+    # 5. POS components
+    df_by_sentence = add_sentence_pos_components(df_by_sentence)
+
+    # 6. lemmatized counts + morphology features
+    df_by_sentence = extract_all_actionable_features(df_by_sentence)
+
+    # drop duplicate count columns — keep last (lemmatized, from step 6)
+    df_by_sentence = df_by_sentence.loc[:, ~df_by_sentence.columns.duplicated(keep='last')]
+
+    # 7. SRL features
+    df_by_sentence = extract_srl_features(df_by_sentence)
+
+    # 8. confirm all features present
+    print(f'[actionability] feature-enriched df shape: {df_by_sentence.shape}')
+    print(f'[actionability] feature-enriched df columns: {list(df_by_sentence.columns)}')
+
+    # 9. calculate actionability density: weighted feature sum / sentence word count
+    word_count = (
+        df_by_sentence['sentence'].str.split().str.len()
+        .fillna(1).clip(lower=1).astype(float)
     )
-    df = pd.concat([df, kw_scores], axis=1)
 
-    # 2. spaCy-derived features (SRL-lite + NER + verb tenses)
-    # Parse once per row and reuse the Doc to avoid 3x repeated spaCy calls.
-    logger.info('extracting SRL/NER/tense features (single spaCy pass)...')
-    spacy_feats = df.apply(
-        lambda r: _extract_spacy_features(r['clean_text'], r['language']),
-        axis=1,
-        result_type='expand'
-    )
-    df = pd.concat([df, spacy_feats], axis=1)
+    def _col(name: str) -> pd.Series:
+        if name in df_by_sentence.columns:
+            return df_by_sentence[name].fillna(0).astype(float)
+        return pd.Series(0.0, index=df_by_sentence.index)
 
-    # 4. Integrate Past Tense Penalty into Actionability Score
-    logger.info('applying past tense penalty to actionability score...')
-    
-    def calculate_penalty(row):
-        total_verbs = row['past_tense'] + row['present_tense'] + row['future_tense']
-        if total_verbs == 0:
-            return 0.0
-        return row['past_tense'] / total_verbs
+    def _list_len(name: str) -> pd.Series:
+        if name in df_by_sentence.columns:
+            return df_by_sentence[name].apply(
+                lambda x: float(len(x)) if isinstance(x, list) else 0.0
+            )
+        return pd.Series(0.0, index=df_by_sentence.index)
 
-    df['past_tense_ratio'] = df.apply(calculate_penalty, axis=1)
-    
-    # Weight for the past tense penalty (adjust this 0.15 based on your data distribution)
-    penalty_weight = 0.15 
-    df['actionability_score'] = df['actionability_score'] - (penalty_weight * df['past_tense_ratio'])
-    
-    # Ensure score doesn't drop below zero and round it
-    df['actionability_score'] = df['actionability_score'].clip(lower=0).round(4)
+    density = (
+          2.0 * _col('imperative_count')
+        + 1.5 * _col('short_term_count')
+        + 1.5 * _col('long_term_count')
+        + 1.0 * _col('spatial_count')
+        + 2.0 * _list_len('verbs_imperative')
+        + 1.5 * _list_len('verbs_subjunctive')
+        + 1.5 * _list_len('auxiliary_modals')
+        + 1.0 * _col('has_agent')
+        + 1.0 * _col('has_action')
+        + 1.0 * _col('has_location')
+        + 2.0 * _col('srl_complete')
+    ) / word_count
 
-    logger.info('actionability scoring complete')
-    return df
+    # 10. standardize density → actionability_probability in [0, 1] via min-max
+    d_min = density.min()
+    d_max = density.max()
+    if d_max > d_min:
+        prob = ((density - d_min) / (d_max - d_min)).round(4)
+    else:
+        prob = pd.Series(0.0, index=df_by_sentence.index)
+
+    df_by_sentence['actionability_probability'] = prob
+
+    # 11. actionability_score: 0 = none, 1 = low (0–0.5], 2 = high (>0.5)
+    df_by_sentence['actionability_score'] = np.select(
+        [
+            prob == 0.0,
+            (prob > 0.0) & (prob <= 0.5),
+            prob > 0.5,
+        ],
+        [0, 1, 2],
+        default=0,
+    ).astype(int)
+
+    logger.info('actionability pipeline complete — %d sentences scored', len(df_by_sentence))
+    return df_by_sentence
