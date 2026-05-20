@@ -13,8 +13,8 @@
 #   accountability: who is responsible (government failure, policy, warnings missed)
 #   recovery:       what happens next (reconstruction, resilience, long-term aid)
 #
-# Each article receives a dominant frame + sub-scores for all four.
-# Bilingual: EN + ES + PT keyword sets.
+# Input: output_actionability df — each row is one article with a list_of_sentences column
+# Output: same df with one added column — dominant_frame
 
 import re
 import importlib
@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 
 
 # ── Frame keyword lexicons ─────────────────────────────────────────────────────
-# Keyword → frame mapping, bilingual (EN / ES / PT).
-# Each keyword triggers +1 to the corresponding frame score.
-# Designed to be exhaustive for flood journalism; extend from corpus review.
 
 _FRAME_KEYWORDS: dict[str, dict[str, list[str]]] = {
     'en': {
@@ -109,82 +106,74 @@ _FRAME_KEYWORDS: dict[str, dict[str, list[str]]] = {
     },
 }
 
+# tie-break order: response > impact > accountability > recovery
+_TIEBREAK = ['response', 'impact', 'accountability', 'recovery']
 
-def _build_pattern(kw: str) -> re.Pattern:
-    """Compile a word-boundary pattern for a keyword or phrase."""
-    escaped = re.escape(kw)
-    # For phrases, don't add \b around spaces
-    if ' ' in kw:
-        return re.compile(escaped, re.IGNORECASE)
-    return re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
-
-
-# Pre-compile all patterns at import time for performance
-_COMPILED_FRAMES: dict[str, dict[str, list[tuple[str, re.Pattern]]]] = {}
+# pre-compile all patterns at import time
+_COMPILED: dict[str, dict[str, list[re.Pattern]]] = {}
 for _lang, _frames in _FRAME_KEYWORDS.items():
-    _COMPILED_FRAMES[_lang] = {}
+    _COMPILED[_lang] = {}
     for _frame, _kws in _frames.items():
-        _COMPILED_FRAMES[_lang][_frame] = [(kw, _build_pattern(kw)) for kw in _kws]
+        _COMPILED[_lang][_frame] = [
+            re.compile((r'' if ' ' in kw else r'\b') + re.escape(kw) + (r'' if ' ' in kw else r'\b'),
+                       re.IGNORECASE)
+            for kw in _kws
+        ]
 
 
-def score_frames(text: str, lang: str) -> dict:
-    """
-    Score all four frames for one article using keyword matching.
-    Returns dict with:
-        frame_{name}_score: int hit count per frame
-        dominant_frame:     name of highest-scoring frame (tie → impact)
-        frame_diversity:    number of frames with score > 0 (0–4)
-    """
-    # Fall back to English if language not in lexicon
-    lang_frames = _COMPILED_FRAMES.get(lang, _COMPILED_FRAMES.get('en', {}))
-    text_lower  = text.lower()
+def _dominant_frame(text: str, lang: str) -> str:
+    """Score all four frames against text, return the dominant frame label."""
+    lang_patterns = _COMPILED.get(lang, _COMPILED.get('en', {}))
+    text_lower = text.lower()
 
-    scores: dict[str, int] = {}
-    for frame_name, kw_patterns in lang_frames.items():
-        scores[frame_name] = sum(
-            1 for _, pat in kw_patterns if pat.search(text_lower)
-        )
-
-    dominant = max(scores, key=lambda k: scores[k]) if scores else 'impact'
-    # Tie-break: prefer response > impact > accountability > recovery
-    if scores:
-        max_score = max(scores.values())
-        tiebreak_order = ['response', 'impact', 'accountability', 'recovery']
-        for candidate in tiebreak_order:
-            if scores.get(candidate, 0) == max_score:
-                dominant = candidate
-                break
-
-    diversity = sum(1 for s in scores.values() if s > 0)
-
-    return {
-        'frame_impact_score':         scores.get('impact', 0),
-        'frame_response_score':       scores.get('response', 0),
-        'frame_accountability_score': scores.get('accountability', 0),
-        'frame_recovery_score':       scores.get('recovery', 0),
-        'dominant_frame':             dominant,
-        'frame_diversity':            diversity,
+    scores = {
+        frame: sum(1 for pat in patterns if pat.search(text_lower))
+        for frame, patterns in lang_patterns.items()
     }
+
+    if not scores or max(scores.values()) == 0:
+        return 'impact'  # default when no keywords match
+
+    max_score = max(scores.values())
+    for candidate in _TIEBREAK:
+        if scores.get(candidate, 0) == max_score:
+            return candidate
+
+    return 'impact'
 
 
 def run_framing(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add framing columns to the dataframe.
-    Expects 'clean_text' and 'language' columns (from preprocessing).
+    Adds a dominant_frame column to the dataframe (one label per article).
+
+    Accepts output_actionability format: each row is one article with a
+    list_of_sentences column (list[str]). Falls back to clean_text if
+    list_of_sentences is absent.
+
+    Dominant frame is one of: impact | response | accountability | recovery
     """
     logger.info('classifying article frames...')
 
-    frame_scores = df.apply(
-        lambda r: score_frames(str(r.get('clean_text', '')), str(r.get('language', 'en'))),
+    # resolve text source — join sentence list if available
+    def _get_text(row) -> str:
+        sentences = row.get('list_of_sentences')
+        if isinstance(sentences, list) and sentences:
+            return ' '.join(str(s) for s in sentences)
+        # fallback to clean_text
+        return str(row.get('clean_text', ''))
+
+    lang_col = 'language' if 'language' in df.columns else None
+
+    df = df.copy()
+    df['dominant_frame'] = df.apply(
+        lambda r: _dominant_frame(
+            _get_text(r),
+            str(r[lang_col]) if lang_col else 'en',
+        ),
         axis=1,
-        result_type='expand',
     )
-    df = pd.concat([df, frame_scores], axis=1)
 
-    # Summary logging
-    if 'dominant_frame' in df.columns:
-        dist = df['dominant_frame'].value_counts().to_dict()
-        logger.info(f'frame distribution: {dist}')
-
+    dist = df['dominant_frame'].value_counts().to_dict()
+    logger.info(f'frame distribution: {dist}')
     logger.info('framing classification complete')
     return df
