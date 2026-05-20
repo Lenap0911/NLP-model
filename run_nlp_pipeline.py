@@ -64,7 +64,7 @@ logger = logging.getLogger('pipeline')
 
 def main(input_path: str = None, skip_embed: bool = False):
     from nlp.preprocessing import run_preprocessing
-    from nlp.embeddings    import run_embeddings, load_embeddings, cross_lingual_similarity
+    from nlp.embeddings    import run_embeddings, load_embeddings
     from nlp.actionability import run_actionability
     from nlp.clustering    import run_clustering
     from nlp.authority     import run_authority
@@ -106,35 +106,27 @@ def main(input_path: str = None, skip_embed: bool = False):
         logger.info('=== STEP 2: GENERATING LABSE EMBEDDINGS ===')
         df, embeddings = run_embeddings(df)
 
-    # ── step 3: cross-lingual similarity (en ↔ es) ────────────────────────────
-    logger.info('=== STEP 3: CROSS-LINGUAL SIMILARITY ===')
-    cross_lingual_pairs = cross_lingual_similarity(embeddings, df)
-    pairs_stem = os.path.splitext(os.path.basename(config.ENRICHED_CSV_PATH))[0]
-    pairs_path = os.path.join(config.OUTPUT_DIR, f'{pairs_stem}_cross_lingual_pairs.csv')
-    cross_lingual_pairs.to_csv(pairs_path, index=False)
-    logger.info(f'saved {len(cross_lingual_pairs)} cross-lingual pairs')
-
-    # ── step 4: actionability scoring ────────────────────────────────────────
-    logger.info('=== STEP 4: ACTIONABILITY SCORING ===')
+    # ── step 3: actionability scoring ────────────────────────────────────────
+    logger.info('=== STEP 3: ACTIONABILITY SCORING ===')
     df = run_actionability(df)
 
-    # ── step 5: source authority scoring ─────────────────────────────────────
-    logger.info('=== STEP 5: SOURCE AUTHORITY SCORING ===')
+    # ── step 4: source authority scoring ─────────────────────────────────────
+    logger.info('=== STEP 4: SOURCE AUTHORITY SCORING ===')
     df = run_authority(df)
 
-    # ── step 6: frame classification ──────────────────────────────────────────
-    logger.info('=== STEP 6: FRAME CLASSIFICATION ===')
+    # ── step 5: frame classification ──────────────────────────────────────────
+    logger.info('=== STEP 5: FRAME CLASSIFICATION ===')
     df = run_framing(df)
 
-    # ── step 7: clustering ────────────────────────────────────────────────────
+    # ── step 6: clustering ────────────────────────────────────────────────────
     # predefined group distributions (Global North/South, country, domain)
     # + data-driven HDBSCAN on actionability features
     # topic modeling is optional — call run_topic_modeling(df, embeddings) separately
-    logger.info('=== STEP 7: CLUSTERING ===')
+    logger.info('=== STEP 6: CLUSTERING ===')
     df = run_clustering(df)
 
-    # ── step 8: saving enriched dataset ──────────────────────────────────────
-    logger.info('=== STEP 8: SAVING ENRICHED DATASET ===')
+    # ── step 7: saving enriched dataset ──────────────────────────────────────
+    logger.info('=== STEP 7: SAVING ENRICHED DATASET ===')
     df.to_csv(config.ENRICHED_CSV_PATH, index=False)
     logger.info(f'enriched dataset saved -> {config.ENRICHED_CSV_PATH}')
     logger.info(f'final shape: {df.shape}')

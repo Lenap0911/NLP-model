@@ -76,11 +76,10 @@ Model/
 |------|--------|-------------|
 | 1 | preprocessing.py | language mapping, text cleaning, flood filter, dedup |
 | 2 | embeddings.py | LaBSE encoding (skip with `--skip-embed`) |
-| 3 | embeddings.py | cross-lingual similarity pairs |
-| 4 | actionability.py | keyword scoring + SRL + morphology → `output_actionability` |
-| 5 | authority.py | source authority scoring |
-| 6 | framing.py | frame classification |
-| 7 | clustering.py | group distributions + data-driven clustering |
+| 3 | actionability.py | keyword scoring + SRL + morphology → `output_actionability` |
+| 4 | authority.py | source authority scoring |
+| 5 | framing.py | frame classification |
+| 6 | clustering.py | group distributions + data-driven clustering |
 
 ## clustering design
 
