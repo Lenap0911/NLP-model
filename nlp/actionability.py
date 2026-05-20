@@ -601,3 +601,58 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
 
     logger.info('actionability pipeline complete — %d sentences scored', len(df_by_sentence))
     return df_by_sentence
+
+
+def calculate_article_actionability(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate sentence-level scores into an article-level actionability percentage.
+
+    Scoring weights:
+      - actionability_score == 1  → 0.5 actionable sentence (low)
+      - actionability_score == 2  → 1.0 actionable sentence (high)
+      - actionability_score == 0  → 0.0
+
+    actionability_percentage = weighted_actionable_count / total_sentences * 100
+
+    Input: df_by_sentence with columns: article_id, actionability_score
+    Output: df_for_actionability — one row per article with actionability_percentage
+    """
+    required = {'article_id', 'actionability_score'}
+    missing = required - set(df_by_sentence.columns)
+    if missing:
+        raise KeyError(f'calculate_article_actionability missing required columns: {sorted(missing)}')
+
+    weight_map = {0: 0.0, 1: 0.5, 2: 1.0}
+
+    df = df_by_sentence.copy()
+    df['_weighted'] = df['actionability_score'].map(weight_map).fillna(0.0)
+
+    df_for_actionability = (
+        df.groupby('article_id', as_index=False)
+          .agg(
+              total_sentences=('actionability_score', 'count'),
+              weighted_actionable=('_weighted', 'sum'),
+          )
+    )
+
+    df_for_actionability['actionability_percentage'] = (
+        (df_for_actionability['weighted_actionable'] / df_for_actionability['total_sentences'].clip(lower=1))
+        * 100
+    ).round(2)
+
+    df_for_actionability = df_for_actionability.drop(columns=['weighted_actionable'])
+
+    # carry over article-level metadata if present in df_by_sentence
+    meta_cols = [c for c in ('flood_id', 'country', 'language') if c in df_by_sentence.columns]
+    if meta_cols:
+        meta = (
+            df_by_sentence[['article_id'] + meta_cols]
+            .drop_duplicates('article_id')
+        )
+        df_for_actionability = df_for_actionability.merge(meta, on='article_id', how='left')
+
+    logger.info(
+        'article actionability calculated — %d articles, mean %.1f%%',
+        len(df_for_actionability),
+        df_for_actionability['actionability_percentage'].mean(),
+    )
+    return df_for_actionability
