@@ -126,9 +126,12 @@ def main(input_path: str = None, skip_embed: bool = False):
     logger.info('=== STEP 6: FRAME CLASSIFICATION ===')
     df = run_framing(df)
 
-    # ── step 7: clustering + topic modelling ──────────────────────────────────
-    logger.info('=== STEP 7: CLUSTERING + TOPIC MODELLING ===')
-    df = run_clustering(df, embeddings)
+    # ── step 7: clustering ────────────────────────────────────────────────────
+    # predefined group distributions (Global North/South, country, domain)
+    # + data-driven HDBSCAN on actionability features
+    # topic modeling is optional — call run_topic_modeling(df, embeddings) separately
+    logger.info('=== STEP 7: CLUSTERING ===')
+    df = run_clustering(df)
 
     # ── step 8: saving enriched dataset ──────────────────────────────────────
     logger.info('=== STEP 8: SAVING ENRICHED DATASET ===')

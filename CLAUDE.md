@@ -2,13 +2,13 @@
 
 ## what this subproject does
 
-NLP analysis of flood-related news articles from the americas (EN + ES),
-extracted from Common Crawl by the parent CC pipeline. The goal is to score
-articles for **actionability** and discover **semantic clusters** of coverage,
-enabling a bilingual (English / Spanish) comparison.
+NLP analysis of flood-related news articles from the americas (EN, ES, PT),
+extracted from Common Crawl. The core research goal is to measure **actionability**
+of flood coverage across regions (Global North vs Global South) and identify
+where CC systematically under-represents certain source types.
 
-**Current dataset:** flood-126, Valencia 2024 (Spain) — 39 articles, all Spanish.
-This is initial test data; the pipeline is designed for Americas datasets.
+**Current dataset:** verified_articles_clean_text.csv — 524 articles, 11 flood events, PT/ES only.
+**Full event metadata:** verified_floods_with_articles.csv — 38 flood events across the Americas.
 
 ## setup
 
@@ -19,12 +19,10 @@ python -m spacy download es_core_news_sm
 python -m spacy download pt_core_news_sm
 ```
 
-`deep-translator` is required for translating per-language BERTopic keywords to English in the clustering step. If not installed, translation is skipped and keywords stay in the source language.
-
 ## running
 
 ```bash
-# full pipeline (uses INPUT_CSV from config/nlp_config.py)
+# full pipeline
 python run_nlp_pipeline.py
 
 # with a custom dataset path
@@ -44,11 +42,17 @@ Model/
 ├── nlp/
 │   ├── preprocessing.py       ← language mapping, clean, filter, deduplicate
 │   ├── embeddings.py          ← LaBSE encoding + cross-lingual similarity
-│   ├── actionability.py       ← keyword scoring + SRL features + temporal phase
-│   └── clustering.py          ← per-language BERTopic → translate → cross-lingual HDBSCAN
+│   ├── actionability.py       ← keyword scoring + SRL + morphology (friend's module)
+│   └── clustering.py          ← group distributions + data-driven HDBSCAN
 ├── data/
-│   └── url_report_flood_126_relevant_with_text.csv   ← current input
+│   ├── verified_articles_clean_text.csv   ← current article input
+│   └── verified_floods_with_articles.csv  ← flood event metadata (38 events)
 ├── output/                    ← all pipeline outputs (gitignored)
+│   ├── group_stats_global_region.csv
+│   ├── group_stats_country.csv
+│   ├── group_stats_domain.csv
+│   ├── group_stats_language.csv
+│   └── cluster_summary.csv
 ├── logs/                      ← run logs (gitignored)
 ├── run_nlp_pipeline.py        ← main entry point
 └── requirements.txt
@@ -58,77 +62,98 @@ Model/
 
 | column | type | notes |
 |--------|------|-------|
-| `doc_num` | int | row identifier |
-| `flood_id` | int | flood event id (e.g. 126) |
+| `flood_id` | int | flood event id |
 | `country` | str | country name |
 | `url` | str | article URL |
-| `domain` | str | publisher domain |
 | `page_title` | str | article headline — used in embedding |
 | `pub_date` | date | publication date — used for temporal phase |
-| `pub_in_window` | bool | article within flood event window |
-| `timestamp` | datetime | crawl timestamp |
-| `language_detected` | str | **ISO 639-2** code e.g. `spa`, `eng` |
-| `language_match` | bool | language matches expected |
-| `is_relevant` | bool | relevance flag |
-| `flood_term_hits` | int | pre-computed flood keyword count |
-| `location_term_hits` | int | pre-computed location keyword count |
-| `subnational_hits` | int | sub-national location keyword count |
-| `location_specificity_score` | float | 0–1 geographic specificity |
-| `word_count` | int | article word count |
-| `char_count` | int | article character count |
-| `is_content_duplicate` | bool | pre-computed duplicate flag |
-| `signal_many_short_lines` | bool | boilerplate quality signal |
-| `signal_no_long_sentence` | bool | boilerplate quality signal |
-| `signal_large_low_flood` | bool | boilerplate quality signal |
-| `clean_text_relevant` | str | **pre-cleaned article body** — main text input |
+| `language_detected` | str | **ISO 639-2** code e.g. `spa`, `por` |
+| `clean_text` | str | **pre-cleaned article body** — main text input |
 
-## key pipeline adaptations for this CSV
+## pipeline steps
 
-- **Language codes**: `language_detected` uses ISO 639-2 (`spa`, `eng`). `preprocessing.py` maps these to ISO 639-1 (`es`, `en`) via `LANGUAGE_CODE_MAP` in config.
-- **Text column**: `clean_text_relevant` is the pre-cleaned text (no `raw_text`). Preprocessing uses this directly.
-- **Flood hits**: `flood_term_hits` is pre-computed — no recomputation. Falls back to keyword lexicon if column is absent.
-- **Deduplication**: `is_content_duplicate` flag is pre-computed — used directly. Falls back to SHA-256 hash if column is absent.
-- **Temporal phase**: No `flood_date` column. `pub_date` is compared against `FLOOD_REFERENCE_DATE` in config (set to flood onset date). Update `FLOOD_REFERENCE_DATE` for each new dataset.
-- **Embedding input**: `page_title` + `clean_text` (derived from `clean_text_relevant`). No `description` or `lead_sentence` columns.
+| step | module | description |
+|------|--------|-------------|
+| 1 | preprocessing.py | language mapping, text cleaning, flood filter, dedup |
+| 2 | embeddings.py | LaBSE encoding (skip with `--skip-embed`) |
+| 3 | embeddings.py | cross-lingual similarity pairs |
+| 4 | actionability.py | keyword scoring + SRL + morphology → `output_actionability` |
+| 5 | authority.py | source authority scoring |
+| 6 | framing.py | frame classification |
+| 7 | clustering.py | group distributions + data-driven clustering |
+
+## clustering design
+
+`clustering.py` takes `output_actionability` as input — **no embeddings required**.
+
+### Stage 1 — Predefined categorical groupings
+Each article is assigned to a category and actionability score distributions
+are computed. Saved as CSV tables in `output/`:
+
+| grouping | output file | what it shows |
+|----------|-------------|---------------|
+| Global North / Global South | `group_stats_global_region.csv` | does CC coverage in richer countries differ in actionability? |
+| Website domain | `group_stats_domain.csv` | which outlets produce more/less actionable content? |
+| Country | `group_stats_country.csv` | per-country actionability distribution |
+| Language | `group_stats_language.csv` | PT vs ES vs EN actionability gap |
+
+Global North = US + Canada. All other Americas countries = Global South.
+To add countries to Global North, edit `GLOBAL_NORTH_COUNTRIES` in config.
+
+### Stage 2 — Data-driven HDBSCAN
+Clusters articles on normalised actionability sub-scores (imperative, short-term,
+long-term, spatial, past_tense_ratio — whichever are present in `output_actionability`).
+Finds natural groupings in actionability space, e.g.:
+- high-imperative + high-spatial = evacuation-order articles
+- high-long-term + low-imperative = policy/recovery reporting
+
+Output column: `data_cluster_id` (-1 = noise). Summary: `cluster_summary.csv`.
+
+### Stage 3 — BERTopic (optional, secondary)
+Only runs if explicitly called: `run_topic_modeling(df, embeddings)`.
+Not part of the main pipeline. Adds `lang_topic_id`, `lang_topic_keywords`,
+`topic_keywords_en` columns.
+
+## expected input schema for clustering (output_actionability)
+
+`run_clustering()` expects these columns (minimum):
+
+| column | required | notes |
+|--------|----------|-------|
+| `actionability_score` | yes | composite score per article |
+| `country` | yes | for Global North/South assignment |
+| `language` | yes | ISO 639-1 |
+| `url` or `domain` | yes | domain extracted from url if domain absent |
+| `imperative_score` / `imperative_count` | optional | better clustering if present |
+| `short_term_score` / `short_term_count` | optional | |
+| `long_term_score` / `long_term_count` | optional | |
+| `spatial_score` / `spatial_count` | optional | |
+| `past_tense_ratio` | optional | |
+
+## key adaptations for current CSV
+
+- **Language codes**: `language_detected` uses ISO 639-2 (`spa`, `por`). Maps to ISO 639-1 via `LANGUAGE_CODE_MAP` in config.
+- **Flood hits**: `flood_term_hits` absent → falls back to keyword lexicon recomputation.
+- **Deduplication**: `is_content_duplicate` absent → falls back to SHA-256 hash deduplication.
 
 ## to change the dataset
 
 **only edit `config/nlp_config.py`**:
 - `INPUT_CSV` — path to new CSV
-- `FLOOD_REFERENCE_DATE` — flood onset date for temporal phase calculation
-- No other file needs changing (column constants are also in config)
- To switch to an Americas dataset later: only edit INPUT_CSV and FLOOD_REFERENCE_DATE in config/nlp_config.py.
+- `FLOOD_REFERENCE_DATE` — flood onset date for temporal phase
 
 ## literature grounding
 
-| module            | key papers                                        |
-|-------------------|---------------------------------------------------|
-| preprocessing.py  | Blomeier et al. 2024, El Ouadi 2025               |
-| embeddings.py     | El Ouadi 2025 (LaBSE), Khawaja et al. 2025        |
-| actionability.py  | Mostafiz et al. 2022, Zade et al. 2018, Jurafsky 2014, Zguir et al. 2025 |
-| clustering.py     | Dujardin et al. 2024 (BERTopic), Sit et al. 2020 (HDBSCAN/UMAP) |
-
-## clustering design (two-stage)
-
-The clustering step (`nlp/clustering.py`) avoids grouping articles by language rather than by topic through a two-stage approach:
-
-**Stage 1 — per-language BERTopic**
-BERTopic is fit separately on each language's article slice using the corresponding LaBSE embedding rows. Because c-TF-IDF operates on monolingual text, topic keywords are clean and in the source language (e.g. `evacuación, alerta, zona` for Spanish). Those keywords are then translated to English via `deep-translator` and stored in `topic_keywords_en`.
-
-**Stage 2 — cross-lingual HDBSCAN**
-UMAP + HDBSCAN runs on the full LaBSE embedding matrix (all languages together). LaBSE already maps semantically equivalent content to nearby vectors regardless of source language, so this produces language-agnostic `cross_cluster_id` values — an English and a Spanish article about the same flood event will share the same cluster ID.
-
-**Output columns added by clustering:**
-| column | meaning |
-|--------|---------|
-| `lang_topic_id` | BERTopic topic ID within the per-language model (-1 = outlier) |
-| `lang_topic_keywords` | top-5 keywords in source language |
-| `topic_keywords_en` | top-5 keywords translated to English |
-| `cross_cluster_id` | language-agnostic HDBSCAN cluster (-1 = noise/outlier) |
+| module | key papers |
+|--------|-----------|
+| preprocessing.py | Blomeier et al. 2024, El Ouadi 2025 |
+| embeddings.py | El Ouadi 2025 (LaBSE), Khawaja et al. 2025 |
+| actionability.py | Mostafiz et al. 2022, Zade et al. 2018, Jurafsky 2014, Zguir et al. 2025 |
+| clustering.py | Sit et al. 2020 (HDBSCAN), Dujardin et al. 2024 (BERTopic, optional) |
 
 ## important constraints
 
 - `config/nlp_config.py` is the single source of truth — never hardcode paths in modules
 - `output/` and `logs/` are gitignored — share outputs via team storage
-- embeddings take ~20 min to generate on CPU for ~10k articles — use `--skip-embed` after first run
-- always run preprocessing before embeddings — the row order must match
+- embeddings take ~20 min on CPU — use `--skip-embed` after first run
+- clustering.py does not require embeddings; topic modeling does

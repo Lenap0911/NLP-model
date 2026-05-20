@@ -11,15 +11,23 @@ import pandas as pd
 config = importlib.import_module('config.nlp_config')
 logger = logging.getLogger(__name__)
 
-# function-word stopwords per language — prevents c-TF-IDF surfacing articles/prepositions
-# as topic keywords instead of flood-relevant content words
+# ── actionability feature columns used for data-driven clustering ─────────────
+# tries all of these; uses whichever are present in the input df
+_SCORE_COLS = [
+    'actionability_score',
+    'imperative_score', 'imperative_count',
+    'short_term_score', 'short_term_count',
+    'long_term_score',  'long_term_count',
+    'spatial_score',    'spatial_count',
+    'past_tense_ratio',
+]
+
+# function-word stopwords per language for BERTopic c-TF-IDF (topic modeling only)
 _STOPWORDS: dict[str, list[str]] = {
     'es': [
         'de','la','el','en','y','a','los','del','se','las','por','un','con',
         'una','su','al','lo','le','da','ha','que','no','es','pero','más',
         'esto','este','esta','han','sus','como','para','también','son','fue',
-        'si','ya','todo','hay','sobre','cuando','donde','después','durante',
-        'antes','mientras','entre','sin','hasta','desde','porque','aunque',
     ],
     'pt': [
         'de','da','do','das','dos','em','no','na','nos','nas','ao','à',
@@ -38,305 +46,308 @@ _STOPWORDS: dict[str, list[str]] = {
 }
 
 
-def run_bertopic(
-    texts: list,
-    embeddings: np.ndarray = None,
-    language: str = 'multilingual',
-    languages: list = None,
-) -> tuple:
+# ── Stage 1a: Global North / South assignment ─────────────────────────────────
+
+def assign_global_region(df: pd.DataFrame) -> pd.DataFrame:
     """
-    fitting BERTopic on article texts with precomputed LaBSE embeddings
-    following Dujardin et al. (2024) who used BERTopic for the 2021 EU floods
-    passing precomputed embeddings avoids re-encoding (uses LaBSE output directly)
-
-    BERTopic runs UMAP → HDBSCAN internally — no separate reduction/clustering step needed
-    languages: ISO 639-1 codes present in the corpus — used to select stopwords
-    returns (topic_model, topics, probs)
-    topics is a list of topic IDs per document (-1 = outlier)
+    Assigns each article to 'Global North' or 'Global South' based on country.
+    Uses GLOBAL_NORTH_COUNTRIES from config; everything else is Global South.
+    Adds column: global_region
     """
-    try:
-        from bertopic import BERTopic
-    except ImportError:
-        raise ImportError('bertopic not installed — run: pip install bertopic')
+    if 'country' not in df.columns:
+        logger.warning('no country column — global_region set to unknown')
+        df['global_region'] = 'unknown'
+        return df
 
-    from sklearn.feature_extraction.text import CountVectorizer
-
-    active_langs = languages or list(_STOPWORDS.keys())
-    combined_stopwords = sorted({w for lang in active_langs for w in _STOPWORDS.get(lang, [])})
-    logger.info(f'vectorizer stopwords: {len(combined_stopwords)} words for langs {active_langs}')
-    vectorizer = CountVectorizer(
-        stop_words=combined_stopwords,
-        ngram_range=config.BERTOPIC_NGRAM_RANGE,
-        min_df=config.BERTOPIC_MIN_DF,
+    df['global_region'] = df['country'].apply(
+        lambda c: 'Global North' if str(c).strip() in config.GLOBAL_NORTH_COUNTRIES
+        else 'Global South'
     )
+    counts = df['global_region'].value_counts().to_dict()
+    logger.info(f'global region assignment: {counts}')
+    return df
 
-    logger.info('fitting BERTopic...')
-    try:
-        from hdbscan import HDBSCAN
-        hdbscan_model = HDBSCAN(
-            min_cluster_size=config.BERTOPIC_MIN_TOPIC_SIZE,
-            min_samples=config.HDBSCAN_MIN_SAMPLES,
-            cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPSILON,
-            prediction_data=True,
-        )
-        topic_model = BERTopic(
-            language=language,
-            min_topic_size=config.BERTOPIC_MIN_TOPIC_SIZE,
-            hdbscan_model=hdbscan_model,
-            vectorizer_model=vectorizer,
-            calculate_probabilities=True,
-            verbose=True,
-        )
-    except ImportError:
-        topic_model = BERTopic(
-            language=language,
-            min_topic_size=config.BERTOPIC_MIN_TOPIC_SIZE,
-            vectorizer_model=vectorizer,
-            calculate_probabilities=True,
-            verbose=True,
-        )
 
-    if embeddings is not None:
-        topics, probs = topic_model.fit_transform(texts, embeddings=embeddings)
-    else:
-        topics, probs = topic_model.fit_transform(texts)
+# ── Stage 1b: Predefined group summary tables ─────────────────────────────────
 
-    n_total = len(topics)
-    n_outliers_before = sum(1 for t in topics if t == -1)
-    logger.info(
-        f'BERTopic initial: {len(topic_model.get_topic_info()) - 1} topics, '
-        f'{n_outliers_before}/{n_total} outliers ({100 * n_outliers_before // n_total}%)'
+def _group_stats(df: pd.DataFrame, group_col: str, score_col: str = 'actionability_score') -> pd.DataFrame:
+    """
+    Computes distribution stats of score_col within each value of group_col.
+    Returns a summary df with count, mean, median, std, min, max per group,
+    plus share of total articles.
+    """
+    if score_col not in df.columns:
+        logger.warning(f'{score_col} not in df — cannot compute group stats for {group_col}')
+        return pd.DataFrame()
+
+    stats = (
+        df.groupby(group_col)[score_col]
+        .agg(count='count', mean='mean', median='median', std='std',
+             min='min', max='max')
+        .reset_index()
     )
-
-    # reassign outliers to nearest topic by embedding distance (recommended for small corpora)
-    n_outliers_final = n_outliers_before
-    if n_outliers_before > 0 and embeddings is not None:
-        try:
-            topics = topic_model.reduce_outliers(
-                texts, topics, strategy='embeddings', embeddings=embeddings
-            )
-            topic_model.update_topics(texts, topics=topics)
-            n_outliers_final = sum(1 for t in topics if t == -1)
-            logger.info(
-                f'outlier reduction: {n_outliers_before} → {n_outliers_final} outliers '
-                f'({n_outliers_before - n_outliers_final} reassigned)'
-            )
-        except Exception as e:
-            logger.warning(f'outlier reduction failed ({e}) — keeping original topics')
-
-    topic_info = topic_model.get_topic_info()
-    n_topics_final = len(topic_info) - 1   # excludes the outlier row (-1)
-    outlier_rate   = n_outliers_final / n_total if n_total > 0 else 0.0
-
-    logger.info(
-        f'BERTopic quality — topics: {n_topics_final}, '
-        f'outlier rate: {n_outliers_final}/{n_total} ({outlier_rate:.0%})'
-    )
-    if outlier_rate > 0.50:
-        logger.warning(
-            f'outlier rate {outlier_rate:.0%} exceeds 50% — clustering is unreliable; '
-            f'consider lowering BERTOPIC_MIN_TOPIC_SIZE or HDBSCAN_CLUSTER_SELECTION_EPSILON'
-        )
-    elif n_topics_final < 3:
-        logger.warning(
-            f'only {n_topics_final} topic(s) found — increase corpus size or lower '
-            f'BERTOPIC_MIN_TOPIC_SIZE for more granular clustering'
-        )
-    else:
-        logger.info(f'clustering quality: OK ({n_topics_final} topics, {outlier_rate:.0%} outliers)')
-
-    return topic_model, topics, probs
+    stats['pct_of_total'] = (stats['count'] / len(df) * 100).round(1)
+    stats = stats.sort_values('mean', ascending=False).reset_index(drop=True)
+    return stats
 
 
-def _translate_keywords(kw_str: str, source_lang: str) -> str:
+def compute_group_distributions(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """
-    Translate a comma-separated keyword string from source_lang to English.
-    Falls back to the original string if deep-translator is not installed or
-    the request fails — translation is best-effort, not a hard requirement.
+    Stage 1: computes actionability score distributions for three predefined groupings:
+      - global_region  (Global North / Global South)
+      - domain         (website domain extracted from url, or domain column if present)
+      - country
+
+    Returns a dict of summary DataFrames keyed by group name.
+    Each is also saved to output/ as a CSV.
     """
-    if source_lang == 'en' or not kw_str or kw_str == 'outlier':
-        return kw_str
-    try:
-        from deep_translator import GoogleTranslator
-        result = GoogleTranslator(source=source_lang, target='en').translate(kw_str)
-        return result if result else kw_str
-    except ImportError:
-        logger.warning(
-            'deep-translator not installed — topic keywords will not be translated. '
-            'Run: pip install deep-translator'
-        )
-        return kw_str
-    except Exception as e:
-        logger.warning(f'keyword translation failed ({source_lang}→en): {e}')
-        return kw_str
+    # extract domain from url if a domain column isn't already present
+    if 'domain' not in df.columns and 'url' in df.columns:
+        df['domain'] = df['url'].str.extract(r'https?://(?:www\.)?([^/]+)/')
+        logger.info('domain column extracted from url')
 
-
-def _run_bertopic_for_language(
-    lang: str,
-    texts: list[str],
-    embs: np.ndarray,
-) -> tuple[dict[int, str], dict[int, str], list[int]]:
-    """
-    Run BERTopic on a single-language corpus slice and translate topic keywords.
-
-    Running BERTopic per language means c-TF-IDF operates on monolingual text,
-    so the extracted keywords are clean and interpretable in the source language
-    rather than a mix of Spanish/English words within a single topic label.
-
-    Returns:
-        kw_src  — topic_id → top-5 keywords in source language
-        kw_en   — topic_id → top-5 keywords translated to English
-        topics  — per-document topic assignment (same order as input texts)
-    """
-    if len(texts) < config.BERTOPIC_MIN_TOPIC_SIZE:
-        logger.warning(
-            f'[{lang}] only {len(texts)} docs, min_topic_size={config.BERTOPIC_MIN_TOPIC_SIZE} '
-            f'— skipping BERTopic for this language'
-        )
-        return {-1: 'outlier'}, {-1: 'outlier'}, [-1] * len(texts)
-
-    topic_model, topics, _ = run_bertopic(texts, embs, languages=[lang])
-
-    kw_src: dict[int, str] = {}
-    kw_en: dict[int, str] = {}
-    for topic_id in set(topics):
-        if topic_id == -1:
-            kw_src[-1] = 'outlier'
-            kw_en[-1] = 'outlier'
+    groups = {}
+    for col in ('global_region', 'domain', 'country', 'language'):
+        if col not in df.columns:
+            logger.warning(f'grouping column {col!r} not found — skipping')
             continue
-        words = topic_model.get_topic(topic_id) or []
-        kw_str = ', '.join(w for w, _ in words[:5])
-        kw_src[topic_id] = kw_str
-        kw_en[topic_id] = _translate_keywords(kw_str, lang)
+        stats = _group_stats(df, col)
+        if stats.empty:
+            continue
+        groups[col] = stats
+        out_path = os.path.join(config.CLUSTER_STATS_DIR, f'group_stats_{col}.csv')
+        stats.to_csv(out_path, index=False, encoding='utf-8')
+        logger.info(f'group stats ({col}) saved → {out_path}')
+        logger.info(f'  {col} breakdown:\n{stats.to_string(index=False)}')
 
-    return kw_src, kw_en, topics
+    return groups
 
 
-def _run_cross_lingual_hdbscan(
-    embeddings: np.ndarray,
-    n_docs: int,
-) -> np.ndarray:
+# ── Stage 2: data-driven HDBSCAN on actionability features ────────────────────
+
+def _build_feature_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
     """
-    UMAP dimension reduction followed by HDBSCAN on the full LaBSE embedding matrix.
+    Builds a normalised feature matrix from whatever actionability score columns
+    are present in the df. Requires at least actionability_score.
+    Returns (matrix, used_column_names).
+    """
+    available = [c for c in _SCORE_COLS if c in df.columns]
+    if not available:
+        raise ValueError(
+            'no actionability score columns found — '
+            'run_actionability must produce at least actionability_score'
+        )
+    if len(available) == 1:
+        logger.warning(
+            f'only one feature column ({available[0]}) available — '
+            'data-driven clustering will be low-quality; '
+            'provide sub-score columns for better results'
+        )
 
-    Because LaBSE maps semantically equivalent content to nearby vectors regardless
-    of source language, this step produces language-agnostic cluster IDs — an English
-    article and a Spanish article about the same flood event will land in the same
-    cluster even though they were never in the same per-language BERTopic run.
+    X = df[available].fillna(0).astype(float).values
+    # z-score normalise so no single column dominates by scale
+    std = X.std(axis=0)
+    std[std == 0] = 1  # avoid division by zero for constant columns
+    X = (X - X.mean(axis=0)) / std
+    return X, available
 
-    Returns an array of cluster labels (int), -1 = noise/outlier.
+
+def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Stage 2: HDBSCAN on normalised actionability feature vectors.
+
+    No embeddings or dimensionality reduction — features are already low-dimensional
+    (up to ~6 score columns). HDBSCAN finds natural groupings in the actionability
+    space, e.g. a cluster of high-spatial / high-imperative articles (evacuation orders)
+    vs a cluster of high-long_term / low-imperative articles (policy reporting).
+
+    Adds column: data_cluster_id  (-1 = noise / outlier)
+    Also saves cluster_summary.csv with mean feature profile per cluster.
     """
     try:
-        import umap as umap_lib
         from hdbscan import HDBSCAN
-    except ImportError as e:
-        logger.warning(f'cross-lingual clustering skipped ({e}) — install umap-learn and hdbscan')
-        return np.full(n_docs, -1, dtype=int)
+    except ImportError:
+        logger.warning('hdbscan not installed — skipping data-driven clustering')
+        df['data_cluster_id'] = -1
+        return df
 
-    n_neighbors = min(config.UMAP_N_NEIGHBORS, n_docs - 1)
-    logger.info(
-        f'UMAP: {embeddings.shape} → {config.UMAP_N_COMPONENTS}d '
-        f'(n_neighbors={n_neighbors}, metric=cosine)'
-    )
-    reducer = umap_lib.UMAP(
-        n_components=config.UMAP_N_COMPONENTS,
-        n_neighbors=n_neighbors,
-        random_state=42,
-        metric='cosine',
-    )
-    reduced = reducer.fit_transform(embeddings)
+    X, feature_cols = _build_feature_matrix(df)
+    logger.info(f'data-driven clustering on {X.shape[0]} articles × {len(feature_cols)} features: {feature_cols}')
 
     clusterer = HDBSCAN(
-        min_cluster_size=config.BERTOPIC_MIN_TOPIC_SIZE,
+        min_cluster_size=config.HDBSCAN_MIN_CLUSTER_SIZE,
         min_samples=config.HDBSCAN_MIN_SAMPLES,
-        cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPSILON,
+        cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPS,
     )
-    labels: np.ndarray = clusterer.fit_predict(reduced)
+    labels = clusterer.fit_predict(X)
 
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     n_outliers = int((labels == -1).sum())
-    outlier_rate = n_outliers / len(labels) if len(labels) > 0 else 0.0
-    logger.info(
-        f'cross-lingual HDBSCAN: {n_clusters} clusters, '
-        f'{n_outliers}/{len(labels)} outliers ({outlier_rate:.0%})'
-    )
-    if outlier_rate > 0.5:
-        logger.warning(
-            f'cross-lingual outlier rate {outlier_rate:.0%} > 50% — '
-            f'consider lowering BERTOPIC_MIN_TOPIC_SIZE or HDBSCAN_CLUSTER_SELECTION_EPSILON'
-        )
+    logger.info(f'HDBSCAN: {n_clusters} clusters, {n_outliers}/{len(labels)} noise points')
 
-    return labels
+    df = df.copy()
+    df['data_cluster_id'] = labels
+
+    # cluster summary: mean feature profile + dominant country/language per cluster
+    summary_rows = []
+    for cid in sorted(set(labels)):
+        mask = labels == cid
+        label = 'noise' if cid == -1 else f'cluster_{cid}'
+        row = {'cluster': label, 'n_articles': int(mask.sum())}
+
+        # mean actionability features
+        for col in feature_cols:
+            if col in df.columns:
+                row[f'mean_{col}'] = round(float(df.loc[mask, col].mean()), 4)
+
+        # dominant metadata
+        for meta_col in ('country', 'language', 'global_region', 'domain'):
+            if meta_col in df.columns:
+                top = df.loc[mask, meta_col].value_counts()
+                row[f'top_{meta_col}'] = top.index[0] if len(top) else ''
+                row[f'top_{meta_col}_pct'] = round(top.iloc[0] / mask.sum() * 100, 1) if len(top) else 0.0
+
+        summary_rows.append(row)
+
+    summary = pd.DataFrame(summary_rows)
+    out_path = os.path.join(config.CLUSTER_STATS_DIR, 'cluster_summary.csv')
+    summary.to_csv(out_path, index=False, encoding='utf-8')
+    logger.info(f'cluster summary saved → {out_path}')
+    logger.info(f'\n{summary.to_string(index=False)}')
+
+    return df
 
 
-def run_clustering(df: pd.DataFrame, embeddings: np.ndarray) -> pd.DataFrame:
+# ── Stage 3 (optional): BERTopic topic modeling ───────────────────────────────
+
+def run_topic_modeling(df: pd.DataFrame, embeddings: np.ndarray) -> pd.DataFrame:
     """
-    Two-stage language-aware clustering pipeline.
+    Optional secondary analysis — only call this explicitly if you want topic labels.
+    Runs per-language BERTopic using precomputed LaBSE embeddings.
+    Adds columns: lang_topic_id, lang_topic_keywords, topic_keywords_en
 
-    Stage 1 — Per-language BERTopic:
-      BERTopic is fit separately on each language's article slice, using the
-      corresponding rows of the LaBSE embedding matrix. c-TF-IDF extracts topic
-      keywords from monolingual text, so labels are clean and in the source language.
-      Keywords are then translated to English via deep-translator (best-effort).
-
-    Stage 2 — Cross-lingual HDBSCAN:
-      UMAP + HDBSCAN runs on the full LaBSE embedding matrix (all languages together).
-      LaBSE already maps semantically equivalent content to nearby vectors across
-      languages, so this step produces language-agnostic cluster IDs without any
-      translation. An EN article and an ES article about the same flood event will
-      share the same cross_cluster_id.
-
-    Output columns added to df:
-      lang_topic_id       — BERTopic topic ID within per-language model (-1 = outlier)
-      lang_topic_keywords — top-5 keywords in source language
-      topic_keywords_en   — top-5 keywords translated to English
-      cross_cluster_id    — language-agnostic HDBSCAN cluster (-1 = noise/outlier)
+    This is NOT part of the main run_clustering() call.
+    Call separately: df = run_topic_modeling(df, embeddings)
     """
+    try:
+        from bertopic import BERTopic
+        from sklearn.feature_extraction.text import CountVectorizer
+    except ImportError:
+        logger.warning('bertopic not installed — topic modeling skipped')
+        return df
+
     df = df.copy()
     df['lang_topic_id'] = -1
     df['lang_topic_keywords'] = ''
     df['topic_keywords_en'] = ''
 
-    # ── Stage 1: per-language BERTopic ────────────────────────────────────────
-    logger.info('=== Clustering Stage 1: per-language BERTopic ===')
+    text_col = 'embed_text' if 'embed_text' in df.columns else 'clean_text'
     languages = sorted(df['language'].dropna().unique().tolist())
 
-    topic_summary_rows: list[dict] = []
-
     for lang in languages:
-        # use positional indices for numpy slicing, label index for df assignment
         positions = np.where((df['language'] == lang).values)[0]
+        if len(positions) < config.BERTOPIC_MIN_TOPIC_SIZE:
+            logger.warning(f'[{lang}] {len(positions)} docs < min_topic_size — skipping')
+            continue
+
         idx = df.index[positions]
-        lang_texts = df.iloc[positions]['embed_text'].tolist()
+        lang_texts = df.iloc[positions][text_col].tolist()
         lang_embs = embeddings[positions]
 
-        logger.info(f'[{lang}] running BERTopic on {len(lang_texts)} articles')
-        kw_src, kw_en, topics = _run_bertopic_for_language(lang, lang_texts, lang_embs)
+        stopwords = sorted({w for l in [lang] for w in _STOPWORDS.get(l, [])})
+        vectorizer = CountVectorizer(
+            stop_words=stopwords,
+            ngram_range=config.BERTOPIC_NGRAM_RANGE,
+            min_df=config.BERTOPIC_MIN_DF,
+        )
+        try:
+            from hdbscan import HDBSCAN as _HDBSCAN
+            hdbscan_model = _HDBSCAN(
+                min_cluster_size=config.BERTOPIC_MIN_TOPIC_SIZE,
+                min_samples=1,
+                prediction_data=True,
+            )
+            model = BERTopic(
+                language='multilingual',
+                min_topic_size=config.BERTOPIC_MIN_TOPIC_SIZE,
+                hdbscan_model=hdbscan_model,
+                vectorizer_model=vectorizer,
+                calculate_probabilities=False,
+                verbose=False,
+            )
+        except ImportError:
+            model = BERTopic(
+                language='multilingual',
+                min_topic_size=config.BERTOPIC_MIN_TOPIC_SIZE,
+                vectorizer_model=vectorizer,
+                calculate_probabilities=False,
+                verbose=False,
+            )
+
+        logger.info(f'[{lang}] BERTopic on {len(lang_texts)} articles')
+        topics, _ = model.fit_transform(lang_texts, embeddings=lang_embs)
+
+        kw_src: dict[int, str] = {}
+        for tid in set(topics):
+            if tid == -1:
+                kw_src[-1] = 'outlier'
+                continue
+            words = model.get_topic(tid) or []
+            kw_src[tid] = ', '.join(w for w, _ in words[:5])
 
         df.loc[idx, 'lang_topic_id'] = topics
         df.loc[idx, 'lang_topic_keywords'] = [kw_src.get(t, '') for t in topics]
-        df.loc[idx, 'topic_keywords_en'] = [kw_en.get(t, '') for t in topics]
 
-        for topic_id, kw_str in kw_src.items():
-            if topic_id == -1:
-                continue
-            n = sum(1 for t in topics if t == topic_id)
-            topic_summary_rows.append({
-                'language': lang,
-                'lang_topic_id': topic_id,
-                'lang_topic_keywords': kw_str,
-                'topic_keywords_en': kw_en.get(topic_id, ''),
-                'n_articles': n,
-            })
+        # best-effort translation
+        def _translate(s: str) -> str:
+            if lang == 'en' or not s or s == 'outlier':
+                return s
+            try:
+                from deep_translator import GoogleTranslator
+                result = GoogleTranslator(source=lang, target='en').translate(s)
+                return result or s
+            except Exception:
+                return s
 
-    if topic_summary_rows:
-        topic_info = pd.DataFrame(topic_summary_rows)
-        topic_info.to_csv(config.TOPICS_PATH, index=False)
-        logger.info(f'per-language topic info saved → {config.TOPICS_PATH}')
+        df.loc[idx, 'topic_keywords_en'] = [_translate(kw_src.get(t, '')) for t in topics]
 
-    # ── Stage 2: cross-lingual HDBSCAN ────────────────────────────────────────
-    logger.info('=== Clustering Stage 2: cross-lingual HDBSCAN ===')
-    cross_labels = _run_cross_lingual_hdbscan(embeddings, n_docs=len(df))
-    df['cross_cluster_id'] = cross_labels
+    topic_path = os.path.join(config.CLUSTER_STATS_DIR, 'topic_model_results.csv')
+    df[['lang_topic_id', 'lang_topic_keywords', 'topic_keywords_en']].to_csv(
+        topic_path, index=False, encoding='utf-8'
+    )
+    logger.info(f'topic model results saved → {topic_path}')
+    return df
+
+
+# ── Main entry point ──────────────────────────────────────────────────────────
+
+def run_clustering(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Two-stage clustering pipeline. Takes output_actionability dataframe directly —
+    no embeddings required.
+
+    Stage 1 — Predefined categorical grouping:
+      Assigns each article to Global North / Global South, then computes actionability
+      score distributions by global_region, country, domain, and language.
+      Saves group_stats_<group>.csv for each grouping.
+
+    Stage 2 — Data-driven HDBSCAN:
+      Clusters articles on normalised actionability feature vectors to find natural
+      groupings in the actionability space (e.g. evacuation-heavy vs recovery-heavy).
+      Saves cluster_summary.csv with feature profiles per cluster.
+
+    For optional BERTopic topic modeling, call run_topic_modeling(df, embeddings)
+    separately after this function.
+
+    Output columns added to df:
+      global_region    — 'Global North' or 'Global South'
+      data_cluster_id  — HDBSCAN cluster id (-1 = noise/outlier)
+    """
+    logger.info('=== Clustering Stage 1: predefined group distributions ===')
+    df = assign_global_region(df)
+    compute_group_distributions(df)
+
+    logger.info('=== Clustering Stage 2: data-driven HDBSCAN ===')
+    df = run_data_driven_clustering(df)
 
     return df

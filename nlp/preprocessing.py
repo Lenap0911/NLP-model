@@ -87,7 +87,7 @@ def detect_language(text: str) -> str:
         return 'unknown'
 
 
-def count_flood_hits(t ext: str, lang: str, lexicon: dict) -> int:
+def count_flood_hits(text: str, lang: str, lexicon: dict) -> int:
     """
     counting flood keyword matches using word boundaries to prevent
     substring false positives — same approach as stage_06 in the CC pipeline
@@ -178,11 +178,11 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
     running the full preprocessing pipeline:
     1. loading data (if not passed in)
     2. mapping ISO 639-2 language codes → ISO 639-1 (e.g. 'spa' → 'es')
-    3. cleaning text from clean_text_relevant column
+    3. cleaning text from clean_text column
     4. filtering minimum character length
     5. filtering to supported languages (en, es, pt)
-    6. using pre-computed flood_term_hits from CSV (no recomputation needed)
-    7. filtering duplicate articles using pre-computed is_content_duplicate flag
+    6. using pre-computed flood_term_hits from CSV if present (falls back to lexicon)
+    7. filtering duplicate articles using is_content_duplicate flag if present
     8. building embed_text field (page_title + clean_text) for LaBSE
     returning enriched dataframe ready for embedding
     """
@@ -196,7 +196,7 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
     logger.info(f'language codes mapped: {df["language"].value_counts().to_dict()}')
 
     # cleaning text from the pre-cleaned CSV column
-    logger.info('cleaning text from clean_text_relevant...')
+    logger.info(f'cleaning text from {config.TEXT_COLUMN}...')
     df['clean_text'] = df[config.TEXT_COLUMN].apply(clean_text)
 
     # filtering minimum length

@@ -6,20 +6,16 @@
 import os
 
 # ── dataset ──────────────────────────────────────────────────────────────────
-# pilot dataset: 6 flood events (IDs 1–6), 6161 articles, EN/ES/PT
+# verified dataset: 11 flood events (IDs 61,62,79,81,83,104,151,152,160,169,188)
+# 524 articles, PT/ES only (no EN)
 # to switch dataset: update INPUT_CSV — no other file needs changing
 # actual CSV columns:
-#   doc_num, flood_id, country, url, domain, page_title, pub_date,
-#   pub_in_window, timestamp, language_detected, language_match,
-#   is_relevant, flood_term_hits, location_term_hits, subnational_hits,
-#   location_specificity_score, word_count, char_count,
-#   is_content_duplicate, signal_many_short_lines, signal_no_long_sentence,
-#   signal_large_low_flood, clean_text_relevant
+#   flood_id, country, url, page_title, pub_date, language_detected, clean_text
 DATA_DIR   = os.path.join(os.path.dirname(__file__), '..', 'data')
-INPUT_CSV  = os.path.join(DATA_DIR, 'url_report_pilot.csv')
+INPUT_CSV  = os.path.join(DATA_DIR, 'verified_articles_clean_text.csv')
 
 # ── column name constants (matches actual CSV schema) ────────────────────────
-TEXT_COLUMN     = 'clean_text_relevant'   # pre-cleaned article body
+TEXT_COLUMN     = 'clean_text'            # pre-cleaned article body
 TITLE_COLUMN    = 'page_title'            # article headline
 LANGUAGE_COLUMN = 'language_detected'    # ISO 639-2 codes e.g. 'spa', 'eng'
 
@@ -112,14 +108,35 @@ ACTIONABILITY_KEYWORDS = {
     },
 }
 
-# ── topic modelling ───────────────────────────────────────────────────────────
+# ── global north / global south classification ────────────────────────────────
+# used by clustering.py to assign each article's country to a world-system tier
+# Global North: high-income OECD countries (US, Canada)
+# Global South: all other Americas countries in the dataset
+# extend this dict when adding new flood events
+GLOBAL_NORTH_COUNTRIES = {
+    'United States of America',
+    'United States',
+    'USA',
+    'Canada',
+}
+# all other countries in the dataset are treated as Global South by default
+
+# ── clustering ────────────────────────────────────────────────────────────────
+# data-driven HDBSCAN on actionability feature vectors (no embeddings needed)
+# features used: actionability sub-scores present in output_actionability df
+HDBSCAN_MIN_CLUSTER_SIZE      = 5    # minimum articles per cluster
+HDBSCAN_MIN_SAMPLES           = 1    # 1 = allow single-point cores
+HDBSCAN_CLUSTER_SELECTION_EPS = 0.3  # merge micro-clusters below this distance
+
+# output paths for per-group summary tables (written alongside enriched CSV)
+CLUSTER_STATS_DIR = OUTPUT_DIR   # group summary CSVs go into output/
+
+# ── topic modelling (secondary / optional) ────────────────────────────────────
 # BERTopic approach: Dujardin et al. (2024) temporal-spatial topic design
-# covers before / during / after disaster phases
-BERTOPIC_MIN_TOPIC_SIZE = 5           # ~10% of corpus size; lower for small datasets
-BERTOPIC_NGRAM_RANGE   = (1, 2)      # unigrams + bigrams for richer topic labels
-BERTOPIC_MIN_DF        = 2           # token must appear in at least N docs
-HDBSCAN_MIN_SAMPLES              = 1    # 1 = allow single-point cores; raise for denser clusters
-HDBSCAN_CLUSTER_SELECTION_EPSILON = 0.5  # merge micro-clusters below this distance; raise for fewer, larger clusters
+# only runs if embeddings are explicitly passed to run_topic_modeling()
+BERTOPIC_MIN_TOPIC_SIZE = 5
+BERTOPIC_NGRAM_RANGE   = (1, 2)
+BERTOPIC_MIN_DF        = 2
 
 # ── semantic role labelling ───────────────────────────────────────────────────
 # Jurafsky (2014) Chapter 21 — extract AGENT, THEME, GOAL from flood sentences
