@@ -573,10 +573,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         + 2.0 * _list_len('verbs_imperative')
         + 1.5 * _list_len('verbs_subjunctive')
         + 1.5 * _list_len('auxiliary_modals')
-        + 1.0 * _col('has_agent')
-        + 1.0 * _col('has_action')
-        + 1.0 * _col('has_location')
-        + 2.0 * _col('srl_complete')
+        + 1.0 * _col('srl_complete')
     ) / word_count
 
     # 10. standardize density → actionability_probability in [0, 1] via min-max
@@ -589,12 +586,12 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
 
     df_by_sentence['actionability_probability'] = prob
 
-    # 11. actionability_score: 0 = none, 1 = low (0–0.5], 2 = high (>0.5)
+    # 11. actionability_score: 0 = (0-0.3], 1 = low (0.3–0.7], 2 = high (>0.7)
     df_by_sentence['actionability_score'] = np.select(
         [
-            prob == 0.0,
-            (prob > 0.0) & (prob <= 0.5),
-            prob > 0.5,
+            (prob > 0.0) & (prob <= 0.3),
+            (prob > 0.3) & (prob <= 0.7),
+            prob > 0.7,
         ],
         [0, 1, 2],
         default=0,
