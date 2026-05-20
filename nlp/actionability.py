@@ -402,25 +402,87 @@ def add_sentence_pos_components(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
 
 
 
+def extract_srl_features(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
+    """Add SRL-lite features to df_by_sentence (one row per sentence).
 
+    Lightweight semantic role labelling using spaCy dependency parsing extracted in
+    `_extract_spacy_features` (agent/action/location + completeness).
 
-def extract_srl_features(text: str, lang: str) -> dict:
+    Expected input columns:
+      - language (str)
+      - sentence (str)
+
+    Adds output columns:
+      - has_agent (int: 0/1)
+      - has_action (int: 0/1)
+      - has_location (int: 0/1)
+      - srl_complete (int: 0/1)
     """
-    lightweight semantic role labelling using spacy dependency parsing
-    extracting AGENT (subject), ACTION (verb), THEME (object), LOCATION (prep)
-    grounded in Jurafsky (2014) Ch.21 — WHO did WHAT to WHOM WHERE
+    required = {'language', 'sentence'}
+    missing = required - set(df_by_sentence.columns)
+    if missing:
+        raise KeyError(f'extract_srl_features missing required columns: {sorted(missing)}')
 
-    not full PropBank SRL — approximating the key roles via dependency labels
-    which is sufficient for the actionability signal we need:
-    checking if a flood-related action verb has a spatial theme (LOCATION)
-    """
-    feats = _extract_spacy_features(text, lang)
-    return {
-        'has_agent': feats['has_agent'],
-        'has_action': feats['has_action'],
-        'has_location': feats['has_location'],
-        'srl_complete': feats['srl_complete'],
-    }
+    # Ensure we have strings
+    df_by_sentence['sentence'] = df_by_sentence['sentence'].fillna('').astype(str)
+    df_by_sentence['language'] = df_by_sentence['language'].fillna('en').astype(str)
+
+    # Allocate output columns
+    df_by_sentence['has_agent'] = 0
+    df_by_sentence['has_action'] = 0
+    df_by_sentence['has_location'] = 0
+    df_by_sentence['srl_complete'] = 0
+
+    # Process by language for efficiency (reuse the same spaCy model)
+    for lang, idx in df_by_sentence.groupby('language', dropna=False).groups.items():
+        lang_norm = (lang or 'en').strip().lower() if isinstance(lang, str) else 'en'
+        nlp = _get_spacy(lang_norm)
+
+        # If model missing, keep zeros for this group
+        if nlp is None or nlp.vocab.length == 0:
+            continue
+
+        sentences = df_by_sentence.loc[idx, 'sentence'].tolist()
+        docs = list(nlp.pipe(sentences)) if sentences else []
+
+        # Compute SRL-lite per doc (sentence)
+        has_agent = []
+        has_action = []
+        has_location = []
+        srl_complete = []
+
+        for doc in docs:
+            _has_agent = 0
+            _has_action = 0
+            _has_location = 0
+
+            for tok in doc:
+                # Agent: nominal subject
+                if tok.dep_ in ('nsubj', 'nsubj:pass', 'csubj'):
+                    _has_agent = 1
+                # Action: any verb/aux as a lightweight proxy
+                if tok.pos_ in ('VERB', 'AUX'):
+                    _has_action = 1
+                # Location: prepositional object / oblique nominal (very lightweight)
+                # (kept broad because labels vary across languages/models)
+                if tok.dep_ in ('pobj', 'obl', 'iobj'):
+                    _has_location = 1
+
+            has_agent.append(_has_agent)
+            has_action.append(_has_action)
+            has_location.append(_has_location)
+            srl_complete.append(1 if (_has_agent and _has_action and _has_location) else 0)
+
+        df_by_sentence.loc[idx, 'has_agent'] = has_agent
+        df_by_sentence.loc[idx, 'has_action'] = has_action
+        df_by_sentence.loc[idx, 'has_location'] = has_location
+        df_by_sentence.loc[idx, 'srl_complete'] = srl_complete
+
+    # ensure ints
+    for c in ['has_agent', 'has_action', 'has_location', 'srl_complete']:
+        df_by_sentence[c] = df_by_sentence[c].fillna(0).astype(int)
+
+    return df_by_sentence
 
 
 
