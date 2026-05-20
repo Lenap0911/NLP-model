@@ -62,9 +62,8 @@ logging.basicConfig(
 logger = logging.getLogger('pipeline')
 
 
-def main(input_path: str = None, skip_embed: bool = False):
+def main(input_path: str = None):
     from nlp.preprocessing import run_preprocessing
-    from nlp.embeddings    import run_embeddings, load_embeddings
     from nlp.actionability import run_actionability
     from nlp.authority     import run_authority
     from nlp.framing       import run_framing
@@ -78,12 +77,7 @@ def main(input_path: str = None, skip_embed: bool = False):
         stem = os.path.splitext(os.path.basename(input_path))[0]
         enriched_name = stem.replace('_input', '') + '_enriched.csv'
         config.ENRICHED_CSV_PATH = os.path.join(config.OUTPUT_DIR, enriched_name)
-        # Embeddings cache is also input-specific to avoid shape mismatches
-        config.EMBEDDINGS_PATH = os.path.join(
-            config.OUTPUT_DIR, stem.replace('_input', '') + '_embeddings.npy'
-        )
-    logger.info(f'enriched output  -> {config.ENRICHED_CSV_PATH}')
-    logger.info(f'embeddings cache -> {config.EMBEDDINGS_PATH}')
+    logger.info(f'enriched output -> {config.ENRICHED_CSV_PATH}')
 
     # ── step 0: scorer validation ─────────────────────────────────────────────
     logger.info('=== STEP 0: SCORER VALIDATION ===')
@@ -94,18 +88,7 @@ def main(input_path: str = None, skip_embed: bool = False):
     logger.info('=== STEP 1: PREPROCESSING ===')
     df = run_preprocessing(input_path)
 
-    # ── step 2: embeddings ────────────────────────────────────────────────────
-    if skip_embed and os.path.exists(config.EMBEDDINGS_PATH):
-        logger.info('=== STEP 2: LOADING PRECOMPUTED EMBEDDINGS ===')
-        embeddings = load_embeddings()
-        # making sure df and embeddings are aligned
-        assert len(df) == embeddings.shape[0], \
-            f'mismatch: {len(df)} rows but {embeddings.shape[0]} embeddings'
-    else:
-        logger.info('=== STEP 2: GENERATING LABSE EMBEDDINGS ===')
-        df, embeddings = run_embeddings(df)
-
-    # ── step 3: actionability scoring ────────────────────────────────────────
+    # ── step 2: actionability scoring ────────────────────────────────────────
     logger.info('=== STEP 3: ACTIONABILITY SCORING ===')
     df = run_actionability(df)
 
@@ -132,8 +115,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='americas flood NLP pipeline')
     parser.add_argument('--input',      type=str,  default=None,
                         help='path to input CSV (overrides config.INPUT_CSV)')
-    parser.add_argument('--skip-embed', action='store_true',
-                        help='load precomputed embeddings instead of re-encoding')
     args = parser.parse_args()
 
-    main(input_path=args.input, skip_embed=args.skip_embed)
+    main(input_path=args.input)
