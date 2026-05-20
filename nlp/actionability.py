@@ -7,6 +7,7 @@
 #   Kruspe et al. (2021): keyword + ML hybrid approaches for actionability detection
 #   Zguir et al. (2025): taxonomy of actionable requests (supplies, personnel, actions)
 
+import os
 import re
 import logging
 import importlib
@@ -599,8 +600,21 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         default=0,
     ).astype(int)
 
-    logger.info('actionability pipeline complete — %d sentences scored', len(df_by_sentence))
-    return df_by_sentence
+    # save sentence-level output to CSV
+    sentences_path = os.path.join(config.OUTPUT_DIR, 'sentences_actionability.csv')
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    df_by_sentence.to_csv(sentences_path, index=False)
+    logger.info('sentence-level output saved -> %s', sentences_path)
+
+    # aggregate to article level and merge back onto the input df
+    df_article_scores = calculate_article_actionability(df_by_sentence)
+    score_cols = ['article_id', 'total_sentences', 'actionability_percentage']
+    df = df.merge(
+        df_article_scores[score_cols], on='article_id', how='left'
+    )
+
+    logger.info('actionability pipeline complete — %d sentences, %d articles', len(df_by_sentence), len(df))
+    return df
 
 
 def calculate_article_actionability(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
