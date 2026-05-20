@@ -79,17 +79,12 @@ def main(input_path: str = None):
         config.ENRICHED_CSV_PATH = os.path.join(config.OUTPUT_DIR, enriched_name)
     logger.info(f'enriched output -> {config.ENRICHED_CSV_PATH}')
 
-    # ── step 0: scorer validation ─────────────────────────────────────────────
-    logger.info('=== STEP 0: SCORER VALIDATION ===')
-    from nlp.validation import validate_scorer
-    validate_scorer()
-
     # ── step 1: preprocessing ─────────────────────────────────────────────────
     logger.info('=== STEP 1: PREPROCESSING ===')
-    df = run_preprocessing(input_path)
+    df = run_preprocessing(path=input_path)
 
     # ── step 2: actionability scoring ────────────────────────────────────────
-    logger.info('=== STEP 3: ACTIONABILITY SCORING ===')
+    logger.info('=== STEP 2: ACTIONABILITY SCORING ===')
     df = run_actionability(df)
 
     # ── step 4: source authority scoring ─────────────────────────────────────

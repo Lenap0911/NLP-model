@@ -67,7 +67,7 @@ def _log_lang_dist(df: pd.DataFrame, step: str) -> None:
     logger.info(f'[{step}] n={len(df)} | lang dist: {dist}')
 
 
-def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
+def run_preprocessing(df: pd.DataFrame = None, path: str = None) -> pd.DataFrame:
     """
     running the full preprocessing pipeline:
     1. loading data (if not passed in)
@@ -81,7 +81,7 @@ def run_preprocessing(df: pd.DataFrame = None) -> pd.DataFrame:
     returning enriched dataframe ready for embedding
     """
     if df is None:
-        df = load_data()
+        df = load_data(path)
 
     # mapping ISO 639-2 ('spa', 'eng') → ISO 639-1 ('es', 'en')
     # the CSV stores 3-letter codes in language_detected
