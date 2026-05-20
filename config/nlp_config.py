@@ -12,7 +12,7 @@ import os
 # actual CSV columns:
 #   flood_id, country, url, page_title, pub_date, language_detected, clean_text
 DATA_DIR   = os.path.join(os.path.dirname(__file__), '..', 'data')
-INPUT_CSV  = os.path.join(DATA_DIR, 'verified_articles_clean_text.csv')
+INPUT_CSV  = os.path.join(DATA_DIR, 'verified_articles_clean.csv')
 
 # ── column name constants (matches actual CSV schema) ────────────────────────
 TEXT_COLUMN     = 'clean_text'            # pre-cleaned article body
