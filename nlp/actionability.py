@@ -40,15 +40,195 @@ def _get_spacy(lang: str):
     return _spacy_models[lang]
 
 ####        2       ####
+
+
+
 def split_into_sentences(text: str) -> list[str]:
-    """Split a paragraph into sentences using spaCy Sentencizer.
-    input: text string (article clean_text)
-    output: Returns a list of sentence strings
+    """Split a paragraph into sentences with guardrails.
+
+    Extra guardrails:
+    - don't allow a split if another sentence-ending punctuation appears within the next 5 chars
+      (prevents splitting on abbreviations like "U.S." / "p.m." / "S.P.")
+    - only allow a split if the next non-space character starts with a capital letter
+      (helps avoid mid-sentence splits, but note: this can be too strict for languages like es/pt)
     """
-    nlp = spacy.blank('xx')
-    nlp.add_pipe('sentencizer')
+    if text is None:
+        return []
+
+    text = re.sub(r"\s+", " ", str(text)).strip()
+    if not text:
+        return []
+
+    # Prevent sentencizer from treating a.m./p.m. as sentence-ending punctuation
+    _AMPM_TOKEN = "<AMPM>"
+    text = re.sub(r"\b([ap])\.m\.\b", r"\1" + _AMPM_TOKEN, text, flags=re.IGNORECASE)
+
+    nlp = spacy.blank("xx")
+    nlp.add_pipe("sentencizer")
     doc = nlp(text)
-    return [s.text.strip() for s in doc.sents if s.text.strip()]
+
+    sents = [s.text.strip() for s in doc.sents if s.text and s.text.strip()]
+
+    # Restore a.m./p.m.
+    sents = [
+        re.sub(r"\b([ap])" + re.escape(_AMPM_TOKEN) + r"\b", r"\1.m.", s, flags=re.IGNORECASE)
+        for s in sents
+    ]
+
+    # --- NEW: post-merge "bad boundary" fixer based on original text positions ---
+    # We re-join adjacent sentences if the boundary looks suspicious.
+
+    def _next_non_space_char(start_idx: int) -> str | None:
+        if start_idx is None:
+            return None
+        m = re.search(r"\S", text[start_idx:])
+        return None if m is None else text[start_idx + m.start()]
+
+    repaired: list[str] = []
+    cursor = 0  # where we are in the original text
+
+    for sent in sents:
+        # find this sent in the original text at/after cursor (best effort)
+        pos = text.find(sent.replace(" ", " "), cursor)
+        if pos == -1:
+            # fallback: just append; cannot reason about boundary
+            repaired.append(sent)
+            continue
+
+        end = pos + len(sent)
+        cursor = end
+
+        if not repaired:
+            repaired.append(sent)
+            continue
+
+        # boundary checks: should we MERGE previous + this sentence?
+        # 1) if within next 5 chars after previous boundary there's another .!? → likely abbreviation chain
+        prev = repaired[-1]
+        prev_end_in_text = text.find(prev, 0)
+        # we don't have exact prev end reliably; instead use current start as boundary anchor
+        boundary_idx = pos  # start of current sentence
+        lookback = max(0, boundary_idx - 10)
+        # locate the punctuation that ended the previous sentence near the boundary
+        prev_punct_idx = None
+        for j in range(boundary_idx - 1, lookback - 1, -1):
+            if text[j] in ".!?":
+                prev_punct_idx = j
+                break
+
+        merge = False
+
+        if prev_punct_idx is not None:
+            window = text[prev_punct_idx + 1 : min(len(text), prev_punct_idx + 1 + 2)]
+            if any(ch in ".!?" for ch in window):
+                merge = True
+
+        # 2) only allow split if next non-space char is uppercase (A-Z or accented uppercase)
+        nxt = _next_non_space_char(boundary_idx)
+        if nxt is not None:
+            if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ]", nxt):
+                merge = True
+
+        if merge:
+            repaired[-1] = f"{repaired[-1]} {sent}".strip()
+        else:
+            repaired.append(sent)
+
+    sents = repaired
+
+    # --- existing merge rules (abbrev-only, abbrev-end) ---
+    ABBREV_ONLY = re.compile(
+        r"^(?:"
+        r"Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|Mt|Gen|Sgt|Capt|Col|Maj|Rep|Sen|Gov|Pres|Rev|Hon|"
+        r"Inc|Ltd|Co|Corp|vs|etc|e\.g|i\.e|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
+        r"a\.m|p\.m"
+        r")\.?$",
+        flags=re.IGNORECASE,
+    )
+
+    ABBREV_END = re.compile(
+        r"(?:\b(?:"
+        r"Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|Mt|Gen|Sgt|Capt|Col|Maj|Rep|Sen|Gov|Pres|Rev|Hon|"
+        r"Inc|Ltd|Co|Corp|No|Nos|Art|Sec|Ch|Vol|Fig|Ref|"
+        r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
+        r")\.)$",
+        flags=re.IGNORECASE,
+    )
+
+    merged: list[str] = []
+    i = 0
+    while i < len(sents):
+        cur = sents[i]
+        if ABBREV_ONLY.match(cur) and i + 1 < len(sents):
+            sents[i + 1] = f"{cur} {sents[i + 1]}".strip()
+            i += 1
+            continue
+        if ABBREV_END.search(cur) and i + 1 < len(sents):
+            sents[i + 1] = f"{cur} {sents[i + 1]}".strip()
+            i += 1
+            continue
+        merged.append(cur)
+        i += 1
+
+    # --- existing filters (same as before) ---
+    JUNK_FULL = re.compile(
+        r"^(?:"
+        r"(?:https?://\S+|www\.\S+|pic\.twitter\.com/\S+)"
+        r"|fuente\b.*"
+        r"|source\b.*"
+        r"|mais notícias\b.*"
+        r"|más noticias\b.*"
+        r"|more news\b.*"
+        r")$",
+        flags=re.IGNORECASE,
+    )
+
+    out: list[str] = []
+    for s in merged:
+        ss = s.strip().strip("“”\"'`").strip()
+        if not ss:
+            continue
+        if JUNK_FULL.match(ss):
+            continue
+        if re.search(r"[A-Za-zÀ-ÿ]", ss) is None:
+            continue
+
+        if re.search(r"[,;:]\s*$", ss) and len(ss) < 60:
+            continue
+
+        letters = len(re.findall(r"[A-Za-zÀ-ÿ]", ss))
+        if len(ss) < 20 or letters < 10:
+            continue
+
+        out.append(ss)
+
+    return out
+
+_WEATHER_TABLEISH_RE = re.compile(
+    r"(?is)"
+    r"(values represent|national weather service|cooperative observers|24[\s-]*hour|precipitation|station max\s*/\s*min)"
+)
+
+def is_tableish_weather_sentence(s: str) -> bool:
+    s = (s or "").strip()
+    if not s:
+        return True
+
+    # strong keyword signal
+    if _WEATHER_TABLEISH_RE.search(s):
+        return True
+
+    # structure: many digits + many slashes/colons (tables)
+    digit_count = len(re.findall(r"\d", s))
+    sep_count = len(re.findall(r"[/=:]", s))
+    upper_tokens = re.findall(r"\b[A-Z]{3,}\b", s)
+
+    if digit_count >= 25 and sep_count >= 12:
+        return True
+    if len(upper_tokens) >= 12 and sep_count >= 10:
+        return True
+
+    return False
 
 
 #########################################################################################################################
@@ -60,30 +240,13 @@ def split_into_sentences(text: str) -> list[str]:
 # df_by_sentence is the expanded df with one row per sentence of each article all the intermediate steps will take place in this df 
 #########################################################################################################################
 
-def create_article_df(articles: list[dict]) -> pd.DataFrame: 
+
+def create_article_df(articles: list[dict]) -> pd.DataFrame:
     """Create a DataFrame from a list of article metadata dictionaries.
-
-    Creates a table with one row per article (article_id, flood_id, language,) and a column
-    containing the list of sentence strings for that article.
-
-    Expected keys in each dict (minimum):
-      - flood_id
-      - article_id
-      - language
-      - country
-      - clean_text  (string paragraph)
-    
-
-    Output columns:
-      - flood_id
-      - article_id
-      - language
-      - country
-      - list_of_sentences (list[str])
+    # ...existing docstring...
     """
     df = pd.DataFrame(articles)
 
-    # Keep only what we need (and fail loudly if missing)
     required = {'flood_id', 'article_id', 'country', 'language', 'clean_text'}
     missing = required - set(df.columns)
     if missing:
@@ -92,10 +255,10 @@ def create_article_df(articles: list[dict]) -> pd.DataFrame:
     df = df.loc[:, ['article_id', 'flood_id', 'country', 'language', 'clean_text']].copy()
     df['language'] = df['language'].astype('category')
 
-    # Split each article into sentences (spaCy sentencizer)
+    # Split each article into sentences
     df['list_of_sentences'] = df['clean_text'].fillna('').apply(split_into_sentences)
 
-    # Ensure one row per article_id (if duplicates exist, flatten sentence lists)
+
     df_for_actionability = (
         df.groupby('article_id', as_index=False)
           .agg(
@@ -148,6 +311,8 @@ def make_sentence_level_df(df_articles: pd.DataFrame) -> pd.DataFrame:
     # Optional: drop empty sentences
     df['sentence'] = df['sentence'].fillna('').astype(str)
     df_by_sentence = df[df['sentence'].str.strip() != ''].reset_index(drop=True)
+    # NEW: drop weather-table/bulletin artifacts
+    df_by_sentence = df_by_sentence[~df_by_sentence["sentence"].apply(is_tableish_weather_sentence)].reset_index(drop=True)
 
     return df_by_sentence
 
@@ -487,9 +652,92 @@ def extract_srl_features(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     return df_by_sentence
 
 
+#########################################################################################################################
+
+#           6 -  Identify advise   
+
+#########################################################################################################################
 
 
 
+def add_advice_flag(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
+    """Add a binary 'advice' column (0/1) for sentences that contain advice-like cues.
+
+    Strategy:
+      1) Try spaCy lemma match (precision-friendly).
+      2) If spaCy unavailable OR lemma match misses, use regex fallback (recall-friendly).
+
+    Output:
+      - advice (int 0/1)
+    """
+    required = {'language', 'sentence'}
+    missing = required - set(df_by_sentence.columns)
+    if missing:
+        raise KeyError(f'add_advice_flag missing required columns: {sorted(missing)}')
+
+    df = df_by_sentence.copy()
+    df['language'] = df['language'].fillna('en').astype(str).str.strip().str.lower()
+    df['sentence'] = df['sentence'].fillna('').astype(str)
+
+    df['advice'] = 0
+
+    lemma_targets = {
+        'en': {'recommend', 'advise', 'suggest', 'urge'},
+        'es': {'recomendar', 'aconsejar', 'sugerir'},
+        'pt': {'recomendar', 'aconselhar', 'sugerir'},
+    }
+
+    # Regex fallback patterns (broader coverage; tune as needed)
+    advice_regex = {
+        'en': re.compile(r"\b(?:recommend|recommends|recommended|recommending|suggest|suggests|suggested|suggesting|advises|advise|advised|advising|urge|urges|urged|urging)\b", re.IGNORECASE),
+        'es': re.compile(r"\b(?:recomend\w*|aconsej\w*|suger\w*)\b", re.IGNORECASE),
+        'pt': re.compile(r"\b(?:recomend\w*|aconselh\w*|suger\w*)\b", re.IGNORECASE),
+    }
+
+    for lang, idx in df.groupby('language', dropna=False).groups.items():
+        lang_norm = (lang or 'en').strip().lower()
+        if lang_norm not in advice_regex:
+            continue
+
+        sents = df.loc[idx, 'sentence'].tolist()
+
+        # 1) try spaCy lemma method if available
+        lemma_flags = None
+        if lang_norm in lemma_targets:
+            nlp = _get_spacy(lang_norm)
+            if nlp is not None and getattr(nlp, "vocab", None) is not None and nlp.vocab.length > 0:
+                targets = lemma_targets[lang_norm]
+                flags: list[int] = []
+                for doc in nlp.pipe(sents):
+                    hit = 0
+                    for tok in doc:
+                        if tok.is_space or tok.is_punct:
+                            continue
+                        lemma = (tok.lemma_ or '').lower()
+                        if lemma in targets:
+                            hit = 1
+                            break
+                    flags.append(hit)
+                lemma_flags = flags
+
+        # 2) regex fallback (and union with lemma_flags if present)
+        rgx = advice_regex[lang_norm]
+        regex_flags = [1 if rgx.search(s or "") else 0 for s in sents]
+
+        if lemma_flags is None:
+            df.loc[idx, 'advice'] = regex_flags
+        else:
+            # union: mark advice if either method hits
+            df.loc[idx, 'advice'] = [int(a or b) for a, b in zip(lemma_flags, regex_flags)]
+
+    df['advice'] = df['advice'].fillna(0).astype(int)
+    return df
+# ...existing code...
+#########################################################################################################################
+
+#           7 -  run actionability   
+
+#########################################################################################################################
 
 def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -543,11 +791,14 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     # 7. SRL features
     df_by_sentence = extract_srl_features(df_by_sentence)
 
-    # 8. confirm all features present
+    # 8. advice features
+    df_by_sentence = add_advice_flag(df_by_sentence)
+
+    # 9. confirm all features present
     print(f'[actionability] feature-enriched df shape: {df_by_sentence.shape}')
     print(f'[actionability] feature-enriched df columns: {list(df_by_sentence.columns)}')
 
-    # 9. calculate actionability density: weighted feature sum / sentence word count
+    # 10. calculate actionability density: weighted feature sum / sentence word count
     word_count = (
         df_by_sentence['sentence'].str.split().str.len()
         .fillna(1).clip(lower=1).astype(float)
@@ -566,7 +817,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         return pd.Series(0.0, index=df_by_sentence.index)
 
     density = (
-          2.0 * _col('imperative_count')
+          3.0 * _col('imperative_count')
         + 1.5 * _col('short_term_count')
         + 1.5 * _col('long_term_count')
         + 1.0 * _col('spatial_count')
@@ -574,7 +825,8 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         + 1.5 * _list_len('verbs_subjunctive')
         + 1.5 * _list_len('auxiliary_modals')
         + 1.0 * _col('srl_complete')
-    ) / word_count
+        + 20.0 * _col('advice')
+    ) 
 
     # 10. standardize density → actionability_probability in [0, 1] via min-max
     d_min = density.min()
