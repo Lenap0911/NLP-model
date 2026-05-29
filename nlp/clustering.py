@@ -22,9 +22,6 @@ _SCORE_COLS = [
     'mean_spatial_count',
     'mean_advice',
     'mean_srl_complete',
-    'mean_has_agent',
-    'mean_has_action',
-    'mean_has_location',
 ]
 
 # function-word stopwords per language for BERTopic c-TF-IDF (topic modeling only)
@@ -159,36 +156,31 @@ def _build_feature_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
 
 def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Stage 2: HDBSCAN on normalised actionability feature vectors.
+    Stage 2: K-Means clustering on normalised actionability feature vectors.
 
-    No embeddings or dimensionality reduction — features are already low-dimensional
-    (up to ~6 score columns). HDBSCAN finds natural groupings in the actionability
-    space, e.g. a cluster of high-spatial / high-imperative articles (evacuation orders)
-    vs a cluster of high-long_term / low-imperative articles (policy reporting).
+    Forces exactly KMEANS_N_CLUSTERS groups, giving interpretable article-type
+    profiles regardless of the score distribution. Each cluster centroid describes
+    a combination of actionability features (e.g. high-advice + high-spatial vs
+    high-short-term + low-advice), which can then be cross-tabulated with
+    country, language, and source_type to find which outlets produce which types.
 
-    Adds column: data_cluster_id  (-1 = noise / outlier)
+    Adds column: data_cluster_id
     Also saves cluster_summary.csv with mean feature profile per cluster.
     """
-    try:
-        from hdbscan import HDBSCAN
-    except ImportError:
-        logger.warning('hdbscan not installed — skipping data-driven clustering')
-        df['data_cluster_id'] = -1
-        return df
+    from sklearn.cluster import KMeans
 
     X, feature_cols = _build_feature_matrix(df)
-    logger.info(f'data-driven clustering on {X.shape[0]} articles × {len(feature_cols)} features: {feature_cols}')
+    k = config.KMEANS_N_CLUSTERS
+    logger.info(f'K-Means (k={k}) on {X.shape[0]} articles × {len(feature_cols)} features: {feature_cols}')
 
-    clusterer = HDBSCAN(
-        min_cluster_size=config.HDBSCAN_MIN_CLUSTER_SIZE,
-        min_samples=config.HDBSCAN_MIN_SAMPLES,
-        cluster_selection_epsilon=config.HDBSCAN_CLUSTER_SELECTION_EPS,
+    kmeans = KMeans(
+        n_clusters=k,
+        n_init=config.KMEANS_N_INIT,
+        random_state=config.KMEANS_RANDOM_STATE,
     )
-    labels = clusterer.fit_predict(X)
+    labels = kmeans.fit_predict(X)
 
-    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    n_outliers = int((labels == -1).sum())
-    logger.info(f'HDBSCAN: {n_clusters} clusters, {n_outliers}/{len(labels)} noise points')
+    logger.info(f'K-Means: {k} clusters assigned across {len(labels)} articles')
 
     df = df.copy()
     df['data_cluster_id'] = labels
@@ -197,7 +189,7 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
     summary_rows = []
     for cid in sorted(set(labels)):
         mask = labels == cid
-        label = 'noise' if cid == -1 else f'cluster_{cid}'
+        label = f'cluster_{cid}'
         row = {'cluster': label, 'n_articles': int(mask.sum())}
 
         # mean actionability features

@@ -122,11 +122,10 @@ GLOBAL_NORTH_COUNTRIES = {
 # all other countries in the dataset are treated as Global South by default
 
 # ── clustering ────────────────────────────────────────────────────────────────
-# data-driven HDBSCAN on actionability feature vectors (no embeddings needed)
-# features used: actionability sub-scores present in output_actionability df
-HDBSCAN_MIN_CLUSTER_SIZE      = 5    # minimum articles per cluster
-HDBSCAN_MIN_SAMPLES           = 1    # 1 = allow single-point cores
-HDBSCAN_CLUSTER_SELECTION_EPS = 0.3  # merge micro-clusters below this distance
+# K-Means on normalised actionability feature vectors
+KMEANS_N_CLUSTERS = 5    # number of article-type clusters to find
+KMEANS_N_INIT     = 20   # random initialisations (higher = more stable result)
+KMEANS_RANDOM_STATE = 42
 
 # output paths for per-group summary tables (written alongside enriched CSV)
 CLUSTER_STATS_DIR = OUTPUT_DIR   # group summary CSVs go into output/
