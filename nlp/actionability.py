@@ -858,9 +858,30 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
 
     # aggregate to article level and merge back onto the input df
     df_article_scores = calculate_article_actionability(df_by_sentence)
-    score_cols = ['article_id', 'total_sentences', 'actionability_percentage']
+
+    # aggregate sub-score columns to article level (mean per article)
+    # these feed directly into clustering as the feature matrix
+    _sub_score_cols = [
+        c for c in [
+            'imperative_count', 'short_term_count', 'long_term_count',
+            'spatial_count', 'advice', 'srl_complete',
+            'has_agent', 'has_action', 'has_location',
+            'actionability_probability',
+        ]
+        if c in df_by_sentence.columns
+    ]
+    if _sub_score_cols:
+        _sub_means = (
+            df_by_sentence[['article_id'] + _sub_score_cols]
+            .groupby('article_id', as_index=False)
+            .mean()
+            .rename(columns={c: f'mean_{c}' for c in _sub_score_cols})
+        )
+        df_article_scores = df_article_scores.merge(_sub_means, on='article_id', how='left')
+
     df = df.merge(
-        df_article_scores[score_cols], on='article_id', how='left'
+        df_article_scores.drop(columns=['flood_id', 'country', 'language'], errors='ignore'),
+        on='article_id', how='left'
     )
 
     logger.info('actionability pipeline complete — %d sentences, %d articles', len(df_by_sentence), len(df))

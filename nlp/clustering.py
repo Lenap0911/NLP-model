@@ -15,12 +15,16 @@ logger = logging.getLogger(__name__)
 # tries all of these; uses whichever are present in the input df
 _SCORE_COLS = [
     'actionability_percentage',
-    'actionability_score',
-    'imperative_score', 'imperative_count',
-    'short_term_score', 'short_term_count',
-    'long_term_score',  'long_term_count',
-    'spatial_score',    'spatial_count',
-    'past_tense_ratio',
+    'mean_actionability_probability',
+    'mean_imperative_count',
+    'mean_short_term_count',
+    'mean_long_term_count',
+    'mean_spatial_count',
+    'mean_advice',
+    'mean_srl_complete',
+    'mean_has_agent',
+    'mean_has_action',
+    'mean_has_location',
 ]
 
 # function-word stopwords per language for BERTopic c-TF-IDF (topic modeling only)
