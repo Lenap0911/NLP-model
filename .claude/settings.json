@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(cd \"c:\\\\Users\\\\lenka\\\\Documents\\\\CSS-SEM4\\\\Flood\\\\Model\" && rm -rf output/visualizations/ && echo \"done\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\lenka\\Documents\\CSS-SEM4\\Flood\\Model\\output\\visualizations"
     ]
   }
 }
