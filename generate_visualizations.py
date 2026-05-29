@@ -28,6 +28,7 @@ plt.rcParams.update({
 })
 
 LANG_LABELS = {'en': 'English', 'es': 'Spanish', 'pt': 'Portuguese'}
+LANG_PALETTE = {'en': '#295574', 'es': '#e75e1e', 'pt': '#2ca062'}
 PALETTE = sns.color_palette('tab10')
 
 
@@ -40,9 +41,12 @@ def _save(fig: plt.Figure, name: str) -> None:
 
 # ── 1. Articles by language ───────────────────────────────────────────────────
 def plot_language_distribution(df: pd.DataFrame) -> None:
-    counts = df['language'].map(LANG_LABELS).fillna(df['language']).value_counts()
+    lang_order = ['en', 'es', 'pt']
+    counts = df['language'].value_counts().reindex(lang_order).dropna()
+    labels = [LANG_LABELS.get(l, l) for l in counts.index]
+    colors = [LANG_PALETTE.get(l, '#aaaaaa') for l in counts.index]
     fig, ax = plt.subplots(figsize=(7, 4))
-    counts.plot.bar(ax=ax, color=PALETTE[:len(counts)], edgecolor='white')
+    ax.bar(labels, counts.values, color=colors, edgecolor='white')
     ax.set_title('Articles by language', fontsize=12, fontweight='bold')
     ax.set_xlabel('')
     ax.set_ylabel('Number of articles')
@@ -72,10 +76,11 @@ def plot_actionability_by_language(df: pd.DataFrame) -> None:
     df = df.copy()
     df['language_label'] = df['language'].map(LANG_LABELS).fillna(df['language'])
     order = df.groupby('language_label')['actionability_percentage'].mean().sort_values(ascending=False).index
+    palette = {LANG_LABELS.get(k, k): v for k, v in LANG_PALETTE.items()}
 
     fig, ax = plt.subplots(figsize=(8, 5))
     sns.boxplot(data=df, x='language_label', y='actionability_percentage',
-                order=order, palette='tab10', ax=ax)
+                order=order, palette=palette, ax=ax)
     ax.set_title('Actionability by language', fontsize=12, fontweight='bold')
     ax.set_xlabel('')
     ax.set_ylabel('Actionability (%)')
