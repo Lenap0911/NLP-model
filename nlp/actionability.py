@@ -732,7 +732,8 @@ def add_advice_flag(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
 
     df['advice'] = df['advice'].fillna(0).astype(int)
     return df
-# ...existing code...
+
+
 #########################################################################################################################
 
 #           7 -  run actionability   
