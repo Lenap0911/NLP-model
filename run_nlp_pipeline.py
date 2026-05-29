@@ -67,6 +67,7 @@ def main(input_path: str = None):
     from nlp.actionability import run_actionability
     from nlp.authority     import run_authority
     from nlp.framing       import run_framing
+    from nlp.clustering    import run_clustering
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     os.makedirs(config.LOG_DIR, exist_ok=True)
@@ -95,9 +96,13 @@ def main(input_path: str = None):
     logger.info('=== STEP 5: FRAME CLASSIFICATION ===')
     df = run_framing(df)
 
-    # ── step 6: saving enriched dataset ──────────────────────────────────────
+    # ── step 6: clustering ────────────────────────────────────────────────────
+    logger.info('=== STEP 6: CLUSTERING ===')
+    df = run_clustering(df)
+
+    # ── step 7: saving enriched dataset ──────────────────────────────────────
     # clustering and visualizations run separately in clustering_analysis.ipynb
-    logger.info('=== STEP 6: SAVING ENRICHED DATASET ===')
+    logger.info('=== STEP 7: SAVING ENRICHED DATASET ===')
     df.to_csv(config.ENRICHED_CSV_PATH, index=False)
     logger.info(f'enriched dataset saved -> {config.ENRICHED_CSV_PATH}')
     logger.info(f'final shape: {df.shape}')

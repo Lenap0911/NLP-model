@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # ── actionability feature columns used for data-driven clustering ─────────────
 # tries all of these; uses whichever are present in the input df
 _SCORE_COLS = [
+    'actionability_percentage',
     'actionability_score',
     'imperative_score', 'imperative_count',
     'short_term_score', 'short_term_count',
@@ -70,7 +71,7 @@ def assign_global_region(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Stage 1b: Predefined group summary tables ─────────────────────────────────
 
-def _group_stats(df: pd.DataFrame, group_col: str, score_col: str = 'actionability_score') -> pd.DataFrame:
+def _group_stats(df: pd.DataFrame, group_col: str, score_col: str = 'actionability_percentage') -> pd.DataFrame:
     """
     Computes distribution stats of score_col within each value of group_col.
     Returns a summary df with count, mean, median, std, min, max per group,
