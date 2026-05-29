@@ -203,7 +203,7 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
         # mean actionability features
         for col in feature_cols:
             if col in df.columns:
-                row[f'mean_{col}'] = round(float(df.loc[mask, col].mean()), 4)
+                row[col] = round(float(df.loc[mask, col].mean()), 4)
 
         # dominant metadata
         for meta_col in ('country', 'language', 'global_region', 'domain'):
