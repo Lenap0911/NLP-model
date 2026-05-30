@@ -13,9 +13,21 @@ logger = logging.getLogger(__name__)
 
 # ── actionability feature columns used for data-driven clustering ─────────────
 # tries all of these; uses whichever are present in the input df
+# full feature set — includes actionability scores as clustering dimensions
 _SCORE_COLS = [
     'actionability_percentage',
     'mean_actionability_probability',
+    'mean_imperative_count',
+    'mean_short_term_count',
+    'mean_long_term_count',
+    'mean_spatial_count',
+    'mean_advice',
+    'mean_srl_complete',
+]
+
+# structural feature set — excludes actionability scores so clusters reflect
+# article structure/language type; actionability is then observed per cluster
+_STRUCTURAL_COLS = [
     'mean_imperative_count',
     'mean_short_term_count',
     'mean_long_term_count',
@@ -154,24 +166,16 @@ def _build_feature_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
     return X, available
 
 
-def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Stage 2: K-Means clustering on normalised actionability feature vectors.
-
-    Forces exactly KMEANS_N_CLUSTERS groups, giving interpretable article-type
-    profiles regardless of the score distribution. Each cluster centroid describes
-    a combination of actionability features (e.g. high-advice + high-spatial vs
-    high-short-term + low-advice), which can then be cross-tabulated with
-    country, language, and source_type to find which outlets produce which types.
-
-    Adds column: data_cluster_id
-    Also saves cluster_summary.csv with mean feature profile per cluster.
-    """
+def _run_kmeans(
+    df: pd.DataFrame,
+    X: np.ndarray,
+    feature_cols: list[str],
+    k: int,
+    label_prefix: str,
+) -> tuple[np.ndarray, pd.DataFrame, float]:
+    """Fit K-Means, return (labels, summary_df, silhouette_score)."""
     from sklearn.cluster import KMeans
-
-    X, feature_cols = _build_feature_matrix(df)
-    k = config.KMEANS_N_CLUSTERS
-    logger.info(f'K-Means (k={k}) on {X.shape[0]} articles × {len(feature_cols)} features: {feature_cols}')
+    from sklearn.metrics import silhouette_score
 
     kmeans = KMeans(
         n_clusters=k,
@@ -179,38 +183,104 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
         random_state=config.KMEANS_RANDOM_STATE,
     )
     labels = kmeans.fit_predict(X)
+    sil = float(silhouette_score(X, labels)) if k > 1 else 0.0
 
-    logger.info(f'K-Means: {k} clusters assigned across {len(labels)} articles')
-
-    df = df.copy()
-    df['data_cluster_id'] = labels
-
-    # cluster summary: mean feature profile + dominant country/language per cluster
     summary_rows = []
     for cid in sorted(set(labels)):
         mask = labels == cid
-        label = f'cluster_{cid}'
-        row = {'cluster': label, 'n_articles': int(mask.sum())}
+        row = {'cluster': f'{label_prefix}_k{k}_c{cid}', 'n_articles': int(mask.sum())}
 
-        # mean actionability features
         for col in feature_cols:
             if col in df.columns:
                 row[col] = round(float(df.loc[mask, col].mean()), 4)
 
-        # dominant metadata
-        for meta_col in ('country', 'language', 'global_region', 'domain'):
+        # always include actionability_percentage as an observed metric
+        if 'actionability_percentage' in df.columns:
+            row['actionability_percentage_mean'] = round(
+                float(df.loc[mask, 'actionability_percentage'].mean()), 4
+            )
+
+        for meta_col in ('country', 'language', 'global_region', 'source_type'):
             if meta_col in df.columns:
                 top = df.loc[mask, meta_col].value_counts()
                 row[f'top_{meta_col}'] = top.index[0] if len(top) else ''
-                row[f'top_{meta_col}_pct'] = round(top.iloc[0] / mask.sum() * 100, 1) if len(top) else 0.0
+                row[f'top_{meta_col}_pct'] = round(
+                    top.iloc[0] / mask.sum() * 100, 1
+                ) if len(top) else 0.0
 
         summary_rows.append(row)
 
-    summary = pd.DataFrame(summary_rows)
-    out_path = os.path.join(config.CLUSTER_STATS_DIR, 'cluster_summary.csv')
-    summary.to_csv(out_path, index=False, encoding='utf-8')
-    logger.info(f'cluster summary saved → {out_path}')
-    logger.info(f'\n{summary.to_string(index=False)}')
+    return labels, pd.DataFrame(summary_rows), sil
+
+
+def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Stage 2: K-Means clustering tried across two feature sets and k=3,4,5.
+
+    Two feature sets:
+      - structural: imperative/short-term/long-term/spatial/advice/srl features only.
+        Clusters reflect article language type; actionability is observed per cluster.
+      - full: adds actionability_percentage + mean_actionability_probability.
+        Clusters reflect overall actionability profile.
+
+    Saves one CSV per (feature_set × k): cluster_summary_structural_k3.csv etc.
+    Also prints silhouette scores so you can pick the most meaningful k.
+
+    The primary data_cluster_id stored in enriched.csv uses the structural k=5 result.
+    """
+    df = df.copy()
+
+    feature_sets = {
+        'structural': [c for c in _STRUCTURAL_COLS if c in df.columns],
+        'full':       [c for c in _SCORE_COLS      if c in df.columns],
+    }
+
+    silhouette_rows = []
+
+    primary_labels = None  # structural k=5 used for data_cluster_id
+
+    for fs_name, cols in feature_sets.items():
+        if not cols:
+            logger.warning(f'no columns available for feature set {fs_name!r} — skipping')
+            continue
+
+        X = df[cols].fillna(0).astype(float).values
+        std = X.std(axis=0)
+        std[std == 0] = 1
+        X = (X - X.mean(axis=0)) / std
+
+        logger.info(f'K-Means [{fs_name}] features: {cols}')
+
+        for k in config.KMEANS_K_VALUES:
+            labels, summary, sil = _run_kmeans(df, X, cols, k, fs_name)
+
+            out_path = os.path.join(
+                config.CLUSTER_STATS_DIR, f'cluster_summary_{fs_name}_k{k}.csv'
+            )
+            summary.to_csv(out_path, index=False, encoding='utf-8')
+            logger.info(
+                f'  [{fs_name} k={k}] silhouette={sil:.3f} — saved → {out_path}'
+            )
+            logger.info(f'\n{summary.to_string(index=False)}')
+
+            silhouette_rows.append({
+                'feature_set': fs_name, 'k': k, 'silhouette': round(sil, 4)
+            })
+
+            if fs_name == 'structural' and k == 5:
+                primary_labels = labels
+
+    # save silhouette comparison
+    sil_df = pd.DataFrame(silhouette_rows)
+    sil_path = os.path.join(config.CLUSTER_STATS_DIR, 'cluster_silhouette_scores.csv')
+    sil_df.to_csv(sil_path, index=False)
+    logger.info(f'silhouette scores:\n{sil_df.to_string(index=False)}')
+
+    # store primary cluster assignment in enriched df
+    if primary_labels is not None:
+        df['data_cluster_id'] = primary_labels
+    else:
+        df['data_cluster_id'] = -1
 
     return df
 

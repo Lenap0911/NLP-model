@@ -123,8 +123,9 @@ GLOBAL_NORTH_COUNTRIES = {
 
 # ── clustering ────────────────────────────────────────────────────────────────
 # K-Means on normalised actionability feature vectors
-KMEANS_N_CLUSTERS = 5    # number of article-type clusters to find
-KMEANS_N_INIT     = 20   # random initialisations (higher = more stable result)
+# tries each k value; saves a separate summary CSV per k + silhouette scores
+KMEANS_K_VALUES     = [3, 4, 5]   # k values to try
+KMEANS_N_INIT       = 20          # random initialisations per k
 KMEANS_RANDOM_STATE = 42
 
 # output paths for per-group summary tables (written alongside enriched CSV)
