@@ -2,7 +2,7 @@
 
 **Dataset:** 580 articles | 11 flood events | EN, ES, PT  
 **Framework:** Protective Action Decision Model (PADM) — Lindell & Perry (2012)  
-**Figures:** output/visualizations_report/
+**Figures:** output/clustering_graphs/
 
 ---
 
@@ -19,8 +19,6 @@ The key interpretive point is not simply that actionability is low on average, b
 `09_padm_components_by_language.png`
 
 This chart shows, for each PADM-relevant linguistic feature, the percentage of articles in which at least one sentence triggered that feature, broken down by language. It directly answers the research question by showing which elements of actionable communication the corpus routinely delivers and which it systematically omits.
-
-**SRL completeness** (agent + action + location co-present in the same sentence) is near-universal across all three languages (97–100%). This is the most important null result: the structural grammatical capacity for a complete directive is present in almost every article, but it is not being used to deliver actionable guidance. Articles describe who did what where, but not what *readers* should do where.
 
 **Spatial anchors** are present in 70–81% of articles — flood coverage consistently locates events geographically, which satisfies one PADM criterion (named location) but not the directive criterion (what to do there).
 

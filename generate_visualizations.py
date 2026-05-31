@@ -194,7 +194,6 @@ def plot_padm_components(df: pd.DataFrame) -> None:
         'Imperative signals':  'mean_imperative_count',
         'Short-term urgency':  'mean_short_term_count',
         'Spatial anchors':     'mean_spatial_count',
-        'SRL completeness':    'mean_srl_complete',
         'Advice-framing':      'mean_advice',
     }
     missing = [c for c in components.values() if c not in df.columns]
@@ -325,24 +324,20 @@ def plot_cluster_padm_heatmap(df: pd.DataFrame) -> None:
         'mean_long_term_count':  'Long-term\nrecovery',
         'mean_spatial_count':    'Spatial\nanchors',
         'mean_advice':           'Advice-\nframing',
-        'mean_srl_complete':     'SRL\ncompleteness',
     }
     available = {k: v for k, v in feature_cols.items() if k in cs.columns}
     heat = cs[[*available.keys()]].rename(columns=available).astype(float)
 
-    # z-score each column so differences are visible across different scales
-    heat_z = (heat - heat.mean()) / heat.std().replace(0, 1)
-
     fig, ax = plt.subplots(figsize=(10, 4))
     sns.heatmap(
-        heat_z, ax=ax, cmap='RdYlGn', center=0,
+        heat, ax=ax, cmap='YlOrRd',
         annot=heat.round(3), fmt='g',
         linewidths=0.5, linecolor='#dddddd',
-        cbar_kws={'label': 'Z-score (raw value annotated)'},
+        cbar_kws={'label': 'Mean score per cluster'},
     )
     ax.set_title(
         'Cluster profiles across PADM structural features (k=4, structural clustering)\n'
-        'Colour = z-score  |  Annotation = raw mean',
+        'Colour = raw mean score per cluster',
         fontsize=11, fontweight='bold'
     )
     ax.set_ylabel('')
