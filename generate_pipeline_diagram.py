@@ -1,109 +1,205 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyArrowPatch
+"""
+Generate a clean pipeline data flow diagram using Graphviz.
+Output: output/pipeline_diagram.png
+"""
 
-fig, ax = plt.subplots(figsize=(10, 16))
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 16)
-ax.axis('off')
-fig.patch.set_facecolor('#FAFAFA')
+import os
+import graphviz
 
-# ── colour palette ────────────────────────────────────────────────────────────
-C_INPUT   = '#D6E4F0'   # light blue
-C_STEP    = '#FFFFFF'   # white boxes
-C_OUTPUT  = '#D5F5E3'   # light green
-C_ARROW   = '#5D6D7E'
-C_BORDER  = '#2C3E50'
-C_LABEL   = '#1A252F'
-C_SUB     = '#566573'
-C_FILE    = '#7F8C8D'
+os.environ['PATH'] += r';C:\Program Files (x86)\Graphviz\bin'
 
-def box(ax, x, y, w, h, label, sublabel='', file='', color=C_STEP, border=C_BORDER,
-        label_size=11, sublabel_size=8.5):
-    rect = mpatches.FancyBboxPatch(
-        (x - w/2, y - h/2), w, h,
-        boxstyle='round,pad=0.08',
-        facecolor=color,
-        edgecolor=border,
-        linewidth=1.4,
-        zorder=3,
+dot = graphviz.Digraph(
+    'pipeline',
+    format='png',
+    graph_attr={
+        'rankdir':  'TB',
+        'splines':  'polyline',
+        'nodesep':  '0.5',
+        'ranksep':  '0.5',
+        'bgcolor':  '#F2F4F7',
+        'fontname': 'Arial',
+        'pad':      '0.6',
+        'dpi':      '180',
+    },
+    node_attr={
+        'shape':    'plaintext',
+        'fontname': 'Arial',
+        'margin':   '0',
+    },
+    edge_attr={
+        'color':     '#2C3E50',
+        'penwidth':  '2.2',
+        'arrowsize': '1.0',
+    },
+)
+
+
+def section(label, label_col, bg, lines):
+    """One coloured section block: header row + one row per bullet."""
+    bullet_rows = ''.join(
+        f'<TR><TD ALIGN="LEFT" CELLPADDING="3">'
+        f'<FONT POINT-SIZE="10.5" COLOR="#1A252F">&#x25AA; {l}</FONT>'
+        f'</TD></TR>'
+        for l in lines
     )
-    ax.add_patch(rect)
-    ax.text(x, y + (0.15 if sublabel else 0), label,
-            ha='center', va='center', fontsize=label_size,
-            fontweight='bold', color=C_LABEL, zorder=4)
-    if sublabel:
-        ax.text(x, y - 0.28, sublabel,
-                ha='center', va='center', fontsize=sublabel_size,
-                color=C_SUB, zorder=4, style='italic')
-    if file:
-        ax.text(x, y - h/2 - 0.18, file,
-                ha='center', va='top', fontsize=7.5,
-                color=C_FILE, zorder=4, family='monospace')
+    return (
+        f'<TR><TD BGCOLOR="{bg}" CELLPADDING="5" CELLSPACING="0">'
+        f'<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="2">'
+        f'<TR><TD ALIGN="LEFT" CELLPADDING="2">'
+        f'<B><FONT POINT-SIZE="9" COLOR="{label_col}">&#9654; {label}</FONT></B>'
+        f'</TD></TR>'
+        f'{bullet_rows}'
+        f'</TABLE>'
+        f'</TD></TR>'
+    )
 
-def arrow(ax, x, y_top, y_bot, label=''):
-    ax.annotate('', xy=(x, y_bot + 0.05), xytext=(x, y_top - 0.05),
-                arrowprops=dict(arrowstyle='->', color=C_ARROW,
-                                lw=1.6, mutation_scale=14),
-                zorder=2)
-    if label:
-        ax.text(x + 0.18, (y_top + y_bot) / 2, label,
-                ha='left', va='center', fontsize=7.5,
-                color=C_SUB, style='italic', zorder=4)
 
-def side_tag(ax, x_box_right, y, text, color='#ECF0F1'):
-    ax.text(x_box_right + 0.18, y, text,
-            ha='left', va='center', fontsize=7.2,
-            color='#626567', style='italic', zorder=4)
+def step_node(step_name, filename, input_lines, process_lines, output_lines, banner_col):
+    filename_row = (
+        f'<TR><TD BGCOLOR="{banner_col}" CELLPADDING="2" ALIGN="CENTER">'
+        f'<FONT POINT-SIZE="9.5" COLOR="#A8DADC" FACE="Courier New"><I>{filename}</I></FONT>'
+        f'</TD></TR>'
+    )
+    spacer = '<TR><TD HEIGHT="3" BGCOLOR="white"></TD></TR>'
+    return (
+        f'<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0" '
+        f'BGCOLOR="white" COLOR="#BDC3C7" STYLE="ROUNDED">'
 
-# ── positions (y increases upward — we'll flip visually top→bottom) ───────────
-# Using y values from top (15) to bottom (1)
+        # banner
+        f'<TR><TD BGCOLOR="{banner_col}" CELLPADDING="10" ALIGN="CENTER">'
+        f'<B><FONT POINT-SIZE="13.5" COLOR="white">{step_name}</FONT></B>'
+        f'</TD></TR>'
 
-BOXES = [
-    # (x_centre, y_centre, w, h, label, sublabel, file, color)
-    (5, 14.5, 6.5, 0.85, 'INPUT CSV', 'verified_articles_clean.csv  |  612 rows', '', C_INPUT),
-    (5, 12.8, 6.5, 1.1,  'STEP 1: PREPROCESSING', 'language normalisation · text cleaning · deduplication · length filtering', 'preprocessing.py', C_STEP),
-    (5, 10.9, 6.5, 1.1,  'STEP 2: ACTIONABILITY SCORING', 'sentence segmentation · POS tagging · keyword counting · SRL · advice detection', 'actionability.py', C_STEP),
-    (5,  9.0, 6.5, 1.1,  'STEP 3: SOURCE AUTHORITY', 'domain lookup · scope classification · source type assignment', 'authority.py', C_STEP),
-    (5,  7.1, 6.5, 1.1,  'STEP 4: FRAME CLASSIFICATION', 'impact · response · accountability · recovery (Entman 1993)', 'framing.py', C_STEP),
-    (5,  5.2, 6.5, 1.1,  'STEP 5: CLUSTERING', 'z-score normalisation · K-Means k=3,4,5 · silhouette selection · k=4 optimal', 'clustering.py', C_STEP),
-    (5,  3.2, 6.5, 0.85, 'OUTPUT', 'enriched.csv  |  580 rows × 33 columns', '', C_OUTPUT),
-]
+        # filename
+        f'{filename_row}'
 
-for (x, y, w, h, label, sublabel, file, color) in BOXES:
-    box(ax, x, y, w, h, label, sublabel, file, color)
+        # sections
+        f'{spacer}'
+        f'{section("INPUT",   "#1A5276", "#D6EAF8", input_lines)}'
+        f'{spacer}'
+        f'{section("PROCESS", "#7D6608", "#FEF9E7", process_lines)}'
+        f'{spacer}'
+        f'{section("OUTPUT",  "#1E8449", "#E9F7EF", output_lines)}'
+        f'{spacer}'
 
-# ── arrows with intermediate labels ──────────────────────────────────────────
-ARROWS = [
-    (14.07, 13.33, 'cleaned, language-verified df  (580 rows)'),
-    (12.35, 11.45, '+ sentence-level features aggregated to article means'),
-    (10.45,  9.55, '+ scope, source_type'),
-    ( 8.55,  7.65, '+ dominant_frame'),
-    ( 6.65,  5.75, '+ data_cluster_id, group_stats'),
-    ( 4.75,  3.65, ''),
-]
+        f'</TABLE>>'
+    )
 
-for (y_top, y_bot, lbl) in ARROWS:
-    arrow(ax, 5, y_top, y_bot, lbl)
 
-# ── side annotations: key outputs per step ────────────────────────────────────
-TAGS = [
-    (8.25, 12.8, '→ 580 rows retained'),
-    (8.25, 10.9, '→ sentences_actionability.csv'),
-    (8.25,  9.0, '→ scope + source_type per article'),
-    (8.25,  7.1, '→ dominant_frame per article'),
-    (8.25,  5.2, '→ cluster_summary_structural_k4.csv\n      → group_stats_*.csv'),
-]
+def io_node(label, sublabel, bg, border):
+    return (
+        f'<<TABLE BORDER="2" CELLBORDER="0" CELLSPACING="0" CELLPADDING="10" '
+        f'BGCOLOR="{bg}" COLOR="{border}" STYLE="ROUNDED">'
+        f'<TR><TD ALIGN="CENTER">'
+        f'<B><FONT POINT-SIZE="14" COLOR="#1A252F">{label}</FONT></B>'
+        f'</TD></TR>'
+        f'<TR><TD ALIGN="CENTER">'
+        f'<FONT POINT-SIZE="10" COLOR="#566573"><I>{sublabel}</I></FONT>'
+        f'</TD></TR>'
+        f'</TABLE>>'
+    )
 
-# ── title ─────────────────────────────────────────────────────────────────────
-ax.text(5, 15.6, 'Americas Flood NLP Pipeline — Data Flow',
-        ha='center', va='center', fontsize=13, fontweight='bold',
-        color=C_LABEL, zorder=4)
 
-ax.text(5, 15.15, 'EN · ES · PT  |  11 flood events  |  scikit-learn · spaCy · pandas',
-        ha='center', va='center', fontsize=8.5, color=C_FILE, zorder=4)
+def output_node(rows):
+    file_rows = ''.join(
+        f'<TR>'
+        f'<TD ALIGN="LEFT" CELLPADDING="6" BGCOLOR="#D4E6F1">'
+        f'<B><FONT POINT-SIZE="9.5" COLOR="#1A5276" FACE="Courier New">{fname}</FONT></B>'
+        f'</TD>'
+        f'<TD ALIGN="LEFT" CELLPADDING="6">'
+        f'<FONT POINT-SIZE="10.5" COLOR="#1A252F">{desc}</FONT>'
+        f'</TD>'
+        f'</TR>'
+        for fname, desc in rows
+    )
+    return (
+        f'<<TABLE BORDER="2" CELLBORDER="0" CELLSPACING="3" CELLPADDING="0" '
+        f'BGCOLOR="#EBF5FB" COLOR="#1A5276" STYLE="ROUNDED">'
+        f'<TR><TD COLSPAN="2" BGCOLOR="#1F618D" CELLPADDING="10" ALIGN="CENTER">'
+        f'<B><FONT POINT-SIZE="14" COLOR="white">OUTPUTS</FONT></B>'
+        f'</TD></TR>'
+        f'{file_rows}'
+        f'</TABLE>>'
+    )
 
-plt.tight_layout()
-out = 'output/pipeline_diagram.png'
-plt.savefig(out, dpi=180, bbox_inches='tight', facecolor=fig.get_facecolor())
+
+# ── nodes ─────────────────────────────────────────────────────────────────────
+
+dot.node('input', io_node(
+    'INPUT CSV',
+    'verified_articles_clean.csv   |   612 rows   |   EN, ES, PT   |   11 flood events',
+    '#D6EAF8', '#1F618D',
+))
+
+dot.node('step1', step_node(
+    'STEP 1: PREPROCESSING', 'preprocessing.py',
+    ['612-row CSV with ISO 639-2 language codes and pre-cleaned article text'],
+    ['ISO 639-2 → ISO 639-1 language mapping  (spa/por/eng → es/pt/en)',
+     'HTML stripping, zero-width character removal, whitespace normalisation',
+     'Minimum 100-character length filter',
+     'SHA-256 deduplication per flood event  (removes duplicate URL crawls)'],
+    ['580 articles retained  |  clean_text and language columns verified'],
+    '#1F618D',
+))
+
+dot.node('step2', step_node(
+    'STEP 2: ACTIONABILITY SCORING', 'actionability.py',
+    ['Cleaned df (580 rows) from Step 1'],
+    ['Sentence segmentation via spaCy  (en_core_web_sm / es_core_news_sm / pt_core_news_sm)',
+     'Morphological POS tagging: imperative and subjunctive verb detection per sentence',
+     'Trilingual keyword counting: imperative · short-term urgency · long-term recovery · spatial anchors',
+     'Semantic Role Labelling: agent + action + location co-presence per sentence',
+     'Advice-framing verb flag: recommends / urges / suggests  (distinct from direct imperatives)',
+     'Weighted density score → min-max normalised actionability_probability [0, 1]'],
+    ['sentences_actionability.csv  |  article means: mean_imperative_count, mean_advice, actionability_percentage'],
+    '#6C3483',
+))
+
+dot.node('step3', step_node(
+    'STEP 3: SOURCE AUTHORITY CLASSIFICATION', 'authority.py',
+    ['Enriched df from Step 2  +  article domain / URL'],
+    ['Domain matched against verified 34-domain lookup table built from dataset',
+     'Fallback heuristics: .gov/.gob → government_agency,   .org → ngo,   other → unknown'],
+    ['scope: government / national / regional / local / ngo  per article',
+     'source_type: government_agency / national_news / regional_news / local_news / unknown'],
+    '#1E8449',
+))
+
+dot.node('step4', step_node(
+    'STEP 4: FRAME CLASSIFICATION', 'framing.py',
+    ['Enriched df from Step 3'],
+    ['Trilingual keyword lexicons (EN/ES/PT) count frame-relevant matches across all sentences',
+     'Four frames: impact · response · accountability · recovery  (Entman 1993)',
+     'Dominant frame = highest keyword count  (impact assigned on ties)'],
+    ['dominant_frame column added per article'],
+    '#BA4A00',
+))
+
+dot.node('step5', step_node(
+    'STEP 5: CLUSTERING', 'clustering.py',
+    ['Fully enriched df from Step 4  (actionability + authority + frame features)'],
+    ['Global North / South region assignment per article  (country lookup)',
+     'Group statistics: actionability distributions by region, country, domain, language',
+     'Z-score normalisation of 6 structural features  (imperative, short-term, long-term, spatial, advice, SRL)',
+     'K-Means at k = 3, 4, 5 on structural and full feature sets',
+     'Silhouette scoring per configuration  →  k = 4 selected  (score: 0.332)'],
+    ['data_cluster_id per article  |  cluster_summary_structural_k4.csv  |  group_stats_*.csv'],
+    '#117A65',
+))
+
+dot.node('output', output_node([
+    ('enriched.csv',                      '580 rows x 33 columns — all pipeline features per article'),
+    ('cluster_summary_structural_k4.csv', 'Cluster profiles: mean feature scores + top country / language / source type'),
+    ('group_stats_*.csv',                 'Actionability distributions by region, country, domain, and language'),
+    ('interpretations.md',                'Written interpretation of cluster structure and cross-cutting findings'),
+]))
+
+# ── edges ─────────────────────────────────────────────────────────────────────
+for a, b in [('input','step1'), ('step1','step2'), ('step2','step3'),
+             ('step3','step4'), ('step4','step5'), ('step5','output')]:
+    dot.edge(a, b)
+
+# ── render ────────────────────────────────────────────────────────────────────
+os.makedirs('output', exist_ok=True)
+out = dot.render(filename='output/pipeline_diagram', cleanup=True)
 print(f'saved: {out}')
