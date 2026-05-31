@@ -839,11 +839,11 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
 
     df_by_sentence['actionability_probability'] = prob
 
-    # 11. actionability_score: 0 = (0-0.3], 1 = low (0.3–0.7], 2 = high (>0.7)
+    # 11. actionability_score: 0 = (0-0.2], 1 = low (0.2–0.7], 2 = high (>0.7)
     df_by_sentence['actionability_score'] = np.select(
         [
-            (prob > 0.0) & (prob <= 0.3),
-            (prob > 0.3) & (prob <= 0.7),
+            (prob > 0.0) & (prob <= 0.2),
+            (prob > 0.2) & (prob <= 0.7),
             prob > 0.7,
         ],
         [0, 1, 2],
