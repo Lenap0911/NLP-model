@@ -93,7 +93,7 @@ ACTIONABILITY_KEYWORDS = {
         # Brazilian Portuguese — follows same taxonomy as EN/ES
         # imperative verbs: direct commands relevant to flood response
         'imperative_verbs': ['evacuar', 'refugiar', 'evitar', 'ligar', 'sair',
-                             'preparar', 'ficar', 'seguir', 'contatar', 'acionar'],
+                             'preparar', 'ficar', 'seguir', 'contatar'],
         # short-term: immediate danger and response signals
         'short_term':       ['agora', 'imediatamente', 'emergência', 'alerta',
                              'urgente', 'perigo', 'resgate', 'aviso', 'socorro'],
