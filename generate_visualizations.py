@@ -160,7 +160,7 @@ def plot_frame_distribution(df: pd.DataFrame) -> None:
     _save(fig, '06_frame_distribution.png')
 
 
-# ── 7. Frame × Global region ──────────────────────────────────────────────────
+# ── 7. Frame × Global region (normalised to proportions) ─────────────────────
 def plot_frame_by_region(df: pd.DataFrame) -> None:
     if 'dominant_frame' not in df.columns or 'global_region' not in df.columns:
         print('dominant_frame or global_region missing — skipping plot 7')
@@ -170,46 +170,213 @@ def plot_frame_by_region(df: pd.DataFrame) -> None:
         df.groupby(['global_region', 'dominant_frame'])
         .size().reset_index(name='count')
     )
-    pivot = frame_region.pivot(index='dominant_frame', columns='global_region', values='count').fillna(0)
+    totals = frame_region.groupby('global_region')['count'].transform('sum')
+    frame_region['pct'] = frame_region['count'] / totals * 100
+    pivot = frame_region.pivot(index='dominant_frame', columns='global_region', values='pct').fillna(0)
 
     fig, ax = plt.subplots(figsize=(9, 5))
     pivot.plot.bar(ax=ax, color=['#4e79a7', '#f28e2b'], edgecolor='white', alpha=0.88)
-    ax.set_title('Frame distribution by global region', fontsize=12, fontweight='bold')
+    ax.set_title('Frame distribution by global region (% of articles within region)',
+                 fontsize=12, fontweight='bold')
     ax.set_xlabel('')
-    ax.set_ylabel('Number of articles')
+    ax.set_ylabel('% of articles in region')
     ax.tick_params(axis='x', rotation=0)
     ax.legend(title='Region')
+    for container in ax.containers:
+        ax.bar_label(container, fmt='%.1f%%', fontsize=8, padding=2)
     plt.tight_layout()
     _save(fig, '07_frame_by_region.png')
 
 
-# ── 8. Cluster profiles ───────────────────────────────────────────────────────
-def plot_cluster_profiles(df: pd.DataFrame) -> None:
-    if 'data_cluster_id' not in df.columns:
-        print('data_cluster_id column not found — skipping plot 8')
+# ── 9. PADM component presence by language ────────────────────────────────────
+def plot_padm_components(df: pd.DataFrame) -> None:
+    components = {
+        'Imperative signals':  'mean_imperative_count',
+        'Short-term urgency':  'mean_short_term_count',
+        'Spatial anchors':     'mean_spatial_count',
+        'SRL completeness':    'mean_srl_complete',
+        'Advice-framing':      'mean_advice',
+    }
+    missing = [c for c in components.values() if c not in df.columns]
+    if missing:
+        print(f'PADM columns missing: {missing} — skipping plot 9')
         return
 
+    lang_order = ['en', 'es', 'pt']
+    lang_labels = [LANG_LABELS.get(l, l) for l in lang_order]
+    x = range(len(components))
+    width = 0.25
+    comp_labels = list(components.keys())
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    for i, lang in enumerate(lang_order):
+        sub = df[df['language'] == lang]
+        pcts = [(sub[col] > 0).mean() * 100 for col in components.values()]
+        bars = ax.bar(
+            [xi + i * width for xi in x], pcts,
+            width=width, label=LANG_LABELS.get(lang, lang),
+            color=LANG_PALETTE[lang], edgecolor='white', alpha=0.9
+        )
+
+    ax.set_xticks([xi + width for xi in x])
+    ax.set_xticklabels(comp_labels, fontsize=10)
+    ax.set_ylabel('% of articles with component present')
+    ax.set_title(
+        'PADM component presence by language\n'
+        '(% of articles where at least one sentence triggered each feature)',
+        fontsize=12, fontweight='bold'
+    )
+    ax.legend(title='Language')
+    ax.set_ylim(0, 100)
+    plt.tight_layout()
+    _save(fig, '09_padm_components_by_language.png')
+
+
+# ── 10. Frame × Actionability ─────────────────────────────────────────────────
+def plot_frame_actionability(df: pd.DataFrame) -> None:
+    if 'dominant_frame' not in df.columns:
+        print('dominant_frame missing — skipping plot 10')
+        return
+
+    frame_order = ['impact', 'response', 'accountability', 'recovery']
+    frame_colors = {
+        'impact': '#e15759', 'response': '#4e79a7',
+        'accountability': '#f28e2b', 'recovery': '#59a14f',
+    }
+
+    stats = (
+        df.groupby('dominant_frame')['actionability_percentage']
+        .agg(['mean', 'median', 'count', 'std'])
+        .reindex(frame_order).reset_index()
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    colors = [frame_colors.get(f, '#aaa') for f in stats['dominant_frame']]
+    bars = ax.bar(stats['dominant_frame'], stats['mean'], color=colors,
+                  edgecolor='white', alpha=0.9, zorder=3)
+    ax.errorbar(stats['dominant_frame'], stats['mean'],
+                yerr=stats['std'], fmt='none', color='#333333',
+                capsize=4, linewidth=1.2, zorder=4)
+
+    for bar, (_, row) in zip(bars, stats.iterrows()):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + row['std'] + 0.3,
+                f"n={int(row['count'])}", ha='center', va='bottom', fontsize=8.5)
+
+    ax.axhline(df['actionability_percentage'].mean(), color='#555', linewidth=1.2,
+               linestyle='--', label=f"Corpus mean ({df['actionability_percentage'].mean():.1f}%)")
+    ax.set_title('Mean actionability by dominant frame\n(error bars = ±1 SD)',
+                 fontsize=12, fontweight='bold')
+    ax.set_xlabel('')
+    ax.set_ylabel('Mean actionability (%)')
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    _save(fig, '10_frame_actionability.png')
+
+
+# ── 11. Source type × Region (H₁ mechanism) ──────────────────────────────────
+def plot_source_region(df: pd.DataFrame) -> None:
+    if 'source_type' not in df.columns or 'global_region' not in df.columns:
+        print('source_type or global_region missing — skipping plot 11')
+        return
+
+    type_order = (
+        df.groupby('source_type')['actionability_percentage']
+        .mean().sort_values(ascending=False).index.tolist()
+    )
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    sns.barplot(
+        data=df, x='source_type', y='actionability_percentage',
+        hue='global_region', order=type_order,
+        palette={'Global North': '#4e79a7', 'Global South': '#f28e2b'},
+        ax=ax, errorbar='sd', alpha=0.9
+    )
+    ax.set_title(
+        'Mean actionability by source type and region\n'
+        'Global South advantage is concentrated in national news — not a regional pattern',
+        fontsize=12, fontweight='bold'
+    )
+    ax.set_xlabel('')
+    ax.set_ylabel('Mean actionability (%) — mean ± SD')
+    ax.tick_params(axis='x', rotation=25)
+    ax.legend(title='Region')
+    plt.tight_layout()
+    _save(fig, '11_source_type_by_region.png')
+
+
+# ── 12. Cluster × PADM components heatmap ────────────────────────────────────
+def plot_cluster_padm_heatmap(df: pd.DataFrame) -> None:
+    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k4.csv')
+    if not os.path.exists(cluster_csv):
+        print('cluster_summary_structural_k4.csv not found — skipping plot 12')
+        return
+
+    cs = pd.read_csv(cluster_csv)
+    cs['label'] = cs['cluster'].str.extract(r'_c(\d+)$')[0].astype(int).apply(
+        lambda x: f'Cluster {x}'
+    )
+    cs = cs.sort_values('label').set_index('label')
+
+    feature_cols = {
+        'mean_imperative_count': 'Imperative\nsignals',
+        'mean_short_term_count': 'Short-term\nurgency',
+        'mean_long_term_count':  'Long-term\nrecovery',
+        'mean_spatial_count':    'Spatial\nanchors',
+        'mean_advice':           'Advice-\nframing',
+        'mean_srl_complete':     'SRL\ncompleteness',
+    }
+    available = {k: v for k, v in feature_cols.items() if k in cs.columns}
+    heat = cs[[*available.keys()]].rename(columns=available).astype(float)
+
+    # z-score each column so differences are visible across different scales
+    heat_z = (heat - heat.mean()) / heat.std().replace(0, 1)
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    sns.heatmap(
+        heat_z, ax=ax, cmap='RdYlGn', center=0,
+        annot=heat.round(3), fmt='g',
+        linewidths=0.5, linecolor='#dddddd',
+        cbar_kws={'label': 'Z-score (raw value annotated)'},
+    )
+    ax.set_title(
+        'Cluster profiles across PADM structural features (k=4, structural clustering)\n'
+        'Colour = z-score  |  Annotation = raw mean',
+        fontsize=11, fontweight='bold'
+    )
+    ax.set_ylabel('')
+    ax.tick_params(axis='x', rotation=0)
+    ax.tick_params(axis='y', rotation=0)
+    plt.tight_layout()
+    _save(fig, '12_cluster_padm_heatmap.png')
+
+
+# ── 8. Cluster profiles ───────────────────────────────────────────────────────
+def plot_cluster_profiles(df: pd.DataFrame) -> None:
+    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k4.csv')
+    if not os.path.exists(cluster_csv):
+        print('cluster_summary_structural_k4.csv not found — skipping plot 8')
+        return
+
+    cs = pd.read_csv(cluster_csv)
+
+    # extract short cluster ID from the label string e.g. 'structural_k4_c2' -> 'Cluster 2'
+    cs['label'] = cs['cluster'].str.extract(r'_c(\d+)$')[0].astype(int).apply(
+        lambda x: f'Cluster {x}'
+    )
+    cs = cs.sort_values('label').reset_index(drop=True)
+    colors = [PALETTE[i % len(PALETTE)] for i in range(len(cs))]
+
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle('HDBSCAN cluster analysis', fontsize=12, fontweight='bold')
+    fig.suptitle('K-Means cluster analysis (structural features, k=4)', fontsize=12, fontweight='bold')
 
-    # mean actionability per cluster
-    cluster_means = (
-        df.groupby('data_cluster_id')['actionability_percentage']
-        .agg(['mean', 'count']).reset_index()
-    )
-    cluster_means['label'] = cluster_means['data_cluster_id'].apply(
-        lambda x: 'Noise' if x == -1 else f'Cluster {x}'
-    )
-    colors = ['#aaaaaa' if x == -1 else PALETTE[i % len(PALETTE)]
-              for i, x in enumerate(cluster_means['data_cluster_id'])]
-
-    axes[0].bar(cluster_means['label'], cluster_means['mean'], color=colors, edgecolor='white')
+    axes[0].bar(cs['label'], cs['actionability_percentage_mean'], color=colors, edgecolor='white')
     axes[0].set_title('Mean actionability per cluster')
     axes[0].set_ylabel('Actionability (%)')
     axes[0].tick_params(axis='x', rotation=15)
 
-    # cluster size
-    axes[1].bar(cluster_means['label'], cluster_means['count'], color=colors, edgecolor='white')
+    axes[1].bar(cs['label'], cs['n_articles'], color=colors, edgecolor='white')
     axes[1].set_title('Article count per cluster')
     axes[1].set_ylabel('Number of articles')
     axes[1].tick_params(axis='x', rotation=15)
@@ -244,6 +411,10 @@ if __name__ == '__main__':
     plot_frame_distribution(df)
     plot_frame_by_region(df)
     plot_cluster_profiles(df)
+    plot_padm_components(df)
+    plot_frame_actionability(df)
+    plot_source_region(df)
+    plot_cluster_padm_heatmap(df)
 
     print(f'\nall outputs saved to: {VIZ_DIR}')
     for f in sorted(os.listdir(VIZ_DIR)):
