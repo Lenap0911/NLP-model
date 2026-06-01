@@ -41,9 +41,6 @@ def _get_spacy(lang: str):
 
 ####        2       ####
 
-
-
-
 def split_into_sentences(text: str) -> list[str]:
     """Split a paragraph into sentences with guardrails.
 
@@ -54,9 +51,8 @@ def split_into_sentences(text: str) -> list[str]:
       (helps avoid mid-sentence splits, but note: this can be too strict for languages like es/pt)
 
     Extra tweak:
-    - if the next token begins with quotes/brackets, skip them and inspect the next real character
-      so sentences like: ... reach of the Rio Grande. "In advising people ...
-      are not incorrectly merged.
+    - force a sentence break before Spanish inverted question/exclamation if it is glued to previous text
+      like: "... circuito.¿Qué ..." -> "... circuito." + "¿Qué ..."
     """
     if text is None:
         return []
@@ -65,6 +61,14 @@ def split_into_sentences(text: str) -> list[str]:
     if not text:
         return []
 
+    # --- NEW: force split when inverted punctuation is glued to previous text ---
+    # Ensures sentencizer sees a boundary opportunity.
+    # Examples fixed:
+    #   "...corto circuito.¿Qué hacer...?" -> "...corto circuito." + "¿Qué hacer...?"
+    #   "...algo!¿Y ahora...?" -> "...algo!" + "¿Y ahora...?"
+    text = re.sub(r"([.!?])(?=(?:¿|¡))", r"\1 ", text)
+
+    # Prevent sentencizer from treating a.m./p.m. as sentence-ending punctuation
     _AMPM_TOKEN = "<AMPM>"
     text = re.sub(r"\b([ap])\.m\.\b", r"\1" + _AMPM_TOKEN, text, flags=re.IGNORECASE)
 
@@ -74,14 +78,36 @@ def split_into_sentences(text: str) -> list[str]:
 
     sents = [s.text.strip() for s in doc.sents if s.text and s.text.strip()]
 
+    # Restore a.m./p.m.
     sents = [
         re.sub(r"\b([ap])" + re.escape(_AMPM_TOKEN) + r"\b", r"\1.m.", s, flags=re.IGNORECASE)
         for s in sents
     ]
 
-    # --- post-merge "bad boundary" fixer based on original text positions ---
+    # --- NEW: hard split inside any "sentence" if it still contains a glued inverted punct ---
+    # This is a last-resort deterministic split: break at the FIRST occurrence of ¿ or ¡
+    # when it's not at the start of the sentence.
+    forced: list[str] = []
+    for s in sents:
+        ss = s.strip()
+        if not ss:
+            continue
+        # split at the first ¿ or ¡ that appears after some text
+        m = re.search(r".+?(?=(¿|¡))", ss)
+        if m and m.end() > 0 and m.end() < len(ss):
+            left = ss[: m.end()].strip()
+            right = ss[m.end() :].strip()
+            if left:
+                forced.append(left)
+            if right:
+                forced.append(right)
+        else:
+            forced.append(ss)
 
-# Include Spanish inverted punctuation as "leading openers" at sentence start.
+    sents = forced
+
+    # --- post-merge "bad boundary" fixer based on original text positions ---
+    # NOTE: allow sentence to start with ¿/¡ by skipping them to inspect the next real char.
     _LEADING_QUOTE_CHARS = "\"'“”‘’«»‹›"
     _LEADING_INVERTED_PUNCT = "¿¡"
     _LEADING_BRACKETS = "([{"
@@ -93,11 +119,9 @@ def split_into_sentences(text: str) -> list[str]:
 
         i = start_idx
 
-        # skip whitespace
         while i < len(text) and text[i].isspace():
             i += 1
 
-        # skip runs of openers like quotes/brackets/¿¡ (possibly separated by spaces)
         OPENERS = _LEADING_QUOTE_CHARS + _LEADING_BRACKETS + _LEADING_INVERTED_PUNCT
         while i < len(text) and text[i] in OPENERS:
             i += 1
@@ -105,7 +129,6 @@ def split_into_sentences(text: str) -> list[str]:
                 i += 1
 
         return None if i >= len(text) else text[i]
-
 
     repaired: list[str] = []
     cursor = 0
@@ -123,7 +146,7 @@ def split_into_sentences(text: str) -> list[str]:
             repaired.append(sent)
             continue
 
-        boundary_idx = pos  # start of current sentence
+        boundary_idx = pos
         lookback = max(0, boundary_idx - 10)
 
         prev_punct_idx = None
@@ -139,7 +162,6 @@ def split_into_sentences(text: str) -> list[str]:
             if any(ch in ".!?" for ch in window):
                 merge = True
 
-        # 2) only allow split if next "real" char is uppercase
         nxt = _next_real_char(boundary_idx)
         if nxt is not None:
             if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ0-9]", nxt):
@@ -199,6 +221,7 @@ def split_into_sentences(text: str) -> list[str]:
         flags=re.IGNORECASE,
     )
 
+
     out: list[str] = []
     for s in merged:
         ss = s.strip().strip("“”\"'`").strip()
@@ -218,7 +241,41 @@ def split_into_sentences(text: str) -> list[str]:
 
         out.append(ss)
 
-    return out
+  
+    # If any sentence is > 1000 chars, split it into ~300-char chunks (prefer splitting on whitespace).
+    def _chunk_long_sentence(s: str, max_len: int = 1000, chunk_len: int = 300) -> list[str]:
+        s = (s or "").strip()
+        if len(s) <= max_len:
+            return [s] if s else []
+
+        chunks: list[str] = []
+        i = 0
+        n = len(s)
+
+        while i < n:
+            j = min(i + chunk_len, n)
+            # try not to cut in the middle of a word: backtrack to last whitespace
+            if j < n:
+                k = s.rfind(" ", i, j)
+                if k != -1 and k > i + 40:  # avoid tiny fragments
+                    j = k
+
+            piece = s[i:j].strip()
+            if piece:
+                chunks.append(piece)
+
+            # advance; if we split at whitespace, skip it
+            i = j
+            while i < n and s[i].isspace():
+                i += 1
+
+        return chunks
+
+    out_chunked: list[str] = []
+    for s in out:
+        out_chunked.extend(_chunk_long_sentence(s, max_len=1000, chunk_len=300))
+
+    return out_chunked
 
 _WEATHER_TABLEISH_RE = re.compile(
     r"(?is)"
@@ -710,7 +767,7 @@ def add_advice_flag(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     advice_regex = {
         'en': re.compile(r"\b(?:recommend|recommends|recommended|recommending|suggest|suggests|suggested|suggesting|advises|advise|advised|advising|urge|urges|urged|urging)\b", re.IGNORECASE),
         'es': re.compile(r"\b(?:recomend\w*|aconsej\w*|suger\w*)\b", re.IGNORECASE),
-        'pt': re.compile(r"\b(?:recomend\w*|aconselh\w*|suger\w*)\b", re.IGNORECASE),
+        'pt': re.compile(r"\b(?:recomend\w*|aconselh\w*|suger\w*|urgen)\b", re.IGNORECASE),
     }
 
     for lang, idx in df.groupby('language', dropna=False).groups.items():
