@@ -414,52 +414,58 @@ def actionable_keyword_count(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
 def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     """
     Unified extraction using spaCy for both morphology (verbs) and lemmatization (keywords).
-
     """
-    # 1. Prepare Data
     required = {'language', 'sentence'}
     if not required.issubset(df_by_sentence.columns):
         raise KeyError(f'Missing columns: {required - set(df_by_sentence.columns)}')
 
-    extracted_data = []
+    # Pre-create output frame aligned to df_by_sentence index
+    features_df = pd.DataFrame(index=df_by_sentence.index)
+    features_df['verbs_imperative'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['verbs_subjunctive'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['auxiliary_modals'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['imperative_count'] = 0
+    features_df['short_term_count'] = 0
+    features_df['long_term_count'] = 0
+    features_df['spatial_count'] = 0
 
-    # 2. Process by Language Group
+
     for lang, idx in df_by_sentence.groupby('language', dropna=False).groups.items():
         lang_norm = (lang or 'en').strip().lower() if isinstance(lang, str) else 'en'
         nlp = _get_spacy(lang_norm)
-        
-        # Load Lemmatized Keyword Dictionaries for this language
+
         kw_dict = _get_kw_dict(lang_norm)
-        # Convert lists to sets for O(1) lookup speed
         short_term_lemmas = set(kw_dict.get('short_term', []))
         long_term_lemmas = set(kw_dict.get('long_term', []))
         spatial_lemmas = set(kw_dict.get('spatial_anchors', []))
-        
-        if nlp is None or nlp.vocab.length == 0:
-            extracted_data.extend([{}] * len(idx))
+
+        # If model missing, just leave defaults for these rows
+        if nlp is None or getattr(nlp, "vocab", None) is None or nlp.vocab.length == 0:
             continue
 
-        sentences = df_by_sentence.loc[idx, 'sentence'].fillna('').astype(str).tolist()
-        
-        # 3. Batch Process through spaCy
-        for doc in nlp.pipe(sentences):
+        # IMPORTANT: preserve row-index order for writing back
+        idx_list = list(idx)
+        sentences = df_by_sentence.loc[idx_list, 'sentence'].fillna('').astype(str).tolist()
+
+        for row_i, doc in zip(idx_list, nlp.pipe(sentences)):
             row_features = {
                 'verbs_imperative': [],
                 'verbs_subjunctive': [],
                 'auxiliary_modals': [],
                 'imperative_count': 0,
+                'subjunctive_count': 0,
                 'short_term_count': 0,
                 'long_term_count': 0,
-                'spatial_count': 0
+                'spatial_count': 0,
             }
-            
-            for tok in doc:
-                if tok.is_space or tok.is_punct: 
-                    continue
-                
-                lemma = tok.lemma_.lower()
 
-                # --- A. Evaluate Keywords via Lemmatization ---
+            for tok in doc:
+                if tok.is_space or tok.is_punct:
+                    continue
+
+                lemma = (tok.lemma_ or '').lower()
+
+                # keyword counts (lemmatized)
                 if lemma in spatial_lemmas:
                     row_features['spatial_count'] += 1
                 elif lemma in short_term_lemmas:
@@ -467,33 +473,30 @@ def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFram
                 elif lemma in long_term_lemmas:
                     row_features['long_term_count'] += 1
 
-                # --- B. Evaluate Morphology for Actionability ---
+                # morphology counts
                 if tok.pos_ == 'VERB':
                     mood = tok.morph.get('Mood')
                     if 'Imp' in mood:
                         row_features['verbs_imperative'].append(tok.lower_)
-                        row_features['imperative_count'] += 1
+
                     elif 'Sub' in mood:
                         row_features['verbs_subjunctive'].append(tok.lower_)
-                        row_features['imperative_count'] += 1 
+  
 
                 elif tok.pos_ == 'AUX':
-                    if lemma in ['dever', 'precisar', 'ter', 'must', 'should', 'need',
-                        'deber', 'necesitar', 'tener', 'haber']:
+                    if lemma in [
+                        'dever', 'precisar', 'ter', 'must', 'should', 'need',
+                        'deber', 'necesitar', 'tener', 'haber'
+                    ]:
                         row_features['auxiliary_modals'].append(lemma)
 
-            extracted_data.append(row_features)
+            # write back aligned by row index
+            for k, v in row_features.items():
+                features_df.at[row_i, k] = v
 
-    # 4. Merge Data
-    features_df = pd.DataFrame(extracted_data, index=df_by_sentence.index)
-    
-    # Clean up NA values
-    for col in features_df.columns:
-        if 'count' in col:
-            features_df[col] = features_df[col].fillna(0).astype(int)
-        else:
-            features_df[col] = features_df[col].apply(lambda x: x if isinstance(x, list) else [])
-        
+    for c in ['verbs_imperative', 'verbs_subjunctive', 'auxiliary_modals']:
+        features_df[c] = features_df[c].apply(lambda x: x if isinstance(x, list) else [])
+
     return pd.concat([df_by_sentence, features_df], axis=1)
 
 #########################################################################################################################

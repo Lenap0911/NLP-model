@@ -71,7 +71,8 @@ FIELDS_TO_EMBED = ['page_title', 'clean_text']
 ACTIONABILITY_KEYWORDS = {
     'en': {
         'imperative_verbs': ['evacuate', 'shelter', 'avoid', 'call', 'move',
-                             'prepare', 'stay', 'go', 'follow', 'contact'],
+                             'prepare', 'stay', 'go', 'follow', 'contact',
+                             'support', 'help', 'limit'],
         'short_term':       ['now', 'immediately', 'emergency', 'warning',
                              'alert', 'urgent', 'danger', 'rescue'],
         'long_term':        ['recovery', 'rebuild', 'policy', 'resilience',
@@ -80,8 +81,10 @@ ACTIONABILITY_KEYWORDS = {
                              'district', 'county', 'city', 'region', 'area'],
     },
     'es': {
-        'imperative_verbs': ['evacuar', 'refugiarse', 'evitar', 'llamar',
-                             'trasladarse', 'prepararse', 'seguir', 'contactar'],
+        'imperative_verbs': ['evacúe', 'refugie', 'evite', 'llame', 'salga',
+                             'prepare', 'quédese', 'permanezca', 'siga', 'contacte',
+                             'evacua', 'refugia', 'evita', 'llama', 'sal',
+                             'prepara', 'quédate', 'permanece', 'sigue', 'contacta'],
         'short_term':       ['ahora', 'inmediatamente', 'emergencia', 'alerta',
                              'urgente', 'peligro', 'rescate', 'aviso'],
         'long_term':        ['recuperación', 'reconstruir', 'política',
@@ -92,8 +95,10 @@ ACTIONABILITY_KEYWORDS = {
     'pt': {
         # Brazilian Portuguese — follows same taxonomy as EN/ES
         # imperative verbs: direct commands relevant to flood response
-        'imperative_verbs': ['evacuar', 'refugiar', 'evitar', 'ligar', 'sair',
-                             'preparar', 'ficar', 'seguir', 'contatar'],
+        'imperative_verbs': ['evacue', 'refugie', 'evite', 'ligue', 'saia',
+                             'prepare', 'fique', 'siga', 'contate', 'evacua', 
+                             'refugia', 'evita', 'liga', 'sai', 'prepara', 
+                             'fica', 'segue', 'contata'],
         # short-term: immediate danger and response signals
         'short_term':       ['agora', 'imediatamente', 'emergência', 'alerta',
                              'urgente', 'perigo', 'resgate', 'aviso', 'socorro'],
