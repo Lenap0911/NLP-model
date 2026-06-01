@@ -1,7 +1,7 @@
 feature_set,k,silhouette
-structural,3,0.3291
-structural,4,0.3325
-structural,5,0.2147
-full,3,0.3239
-full,4,0.3328
-full,5,0.2661
+structural,3,0.4766
+structural,4,0.3707
+structural,5,0.2671
+full,3,0.5759
+full,4,0.2494
+full,5,0.2543
