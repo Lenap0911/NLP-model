@@ -226,7 +226,7 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
     Saves one CSV per (feature_set × k): cluster_summary_structural_k3.csv etc.
     Also prints silhouette scores so you can pick the most meaningful k.
 
-    The primary data_cluster_id stored in enriched.csv uses the structural k=4 result (optimal silhouette).
+    The primary data_cluster_id stored in enriched.csv uses the structural k=3 result (optimal silhouette).
     """
     df = df.copy()
 
@@ -237,7 +237,7 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
 
     silhouette_rows = []
 
-    primary_labels = None  # structural k=4 used for data_cluster_id (optimal silhouette)
+    primary_labels = None  # structural k=3 used for data_cluster_id (optimal silhouette)
 
     for fs_name, cols in feature_sets.items():
         if not cols:
@@ -267,7 +267,7 @@ def run_data_driven_clustering(df: pd.DataFrame) -> pd.DataFrame:
                 'feature_set': fs_name, 'k': k, 'silhouette': round(sil, 4)
             })
 
-            if fs_name == 'structural' and k == 4:
+            if fs_name == 'structural' and k == 3:
                 primary_labels = labels
 
     # save silhouette comparison

@@ -307,9 +307,9 @@ def plot_source_region(df: pd.DataFrame) -> None:
 
 # ── 12. Cluster × PADM components heatmap ────────────────────────────────────
 def plot_cluster_padm_heatmap(df: pd.DataFrame) -> None:
-    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k4.csv')
+    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k3.csv')
     if not os.path.exists(cluster_csv):
-        print('cluster_summary_structural_k4.csv not found — skipping plot 12')
+        print('cluster_summary_structural_k3.csv not found — skipping plot 12')
         return
 
     cs = pd.read_csv(cluster_csv)
@@ -336,7 +336,7 @@ def plot_cluster_padm_heatmap(df: pd.DataFrame) -> None:
         cbar_kws={'label': 'Mean score per cluster'},
     )
     ax.set_title(
-        'Cluster profiles across PADM structural features (k=4, structural clustering)\n'
+        'Cluster profiles across PADM structural features (k=3, structural clustering)\n'
         'Colour = raw mean score per cluster',
         fontsize=11, fontweight='bold'
     )
@@ -349,9 +349,9 @@ def plot_cluster_padm_heatmap(df: pd.DataFrame) -> None:
 
 # ── 8. Cluster profiles ───────────────────────────────────────────────────────
 def plot_cluster_profiles(df: pd.DataFrame) -> None:
-    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k4.csv')
+    cluster_csv = os.path.join(OUT_DIR, 'cluster_summary_structural_k3.csv')
     if not os.path.exists(cluster_csv):
-        print('cluster_summary_structural_k4.csv not found — skipping plot 8')
+        print('cluster_summary_structural_k3.csv not found — skipping plot 8')
         return
 
     cs = pd.read_csv(cluster_csv)
@@ -364,7 +364,7 @@ def plot_cluster_profiles(df: pd.DataFrame) -> None:
     colors = [PALETTE[i % len(PALETTE)] for i in range(len(cs))]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle('K-Means cluster analysis (structural features, k=4)', fontsize=12, fontweight='bold')
+    fig.suptitle('K-Means cluster analysis (structural features, k=3)', fontsize=12, fontweight='bold')
 
     axes[0].bar(cs['label'], cs['actionability_percentage_mean'], color=colors, edgecolor='white')
     axes[0].set_title('Mean actionability per cluster')

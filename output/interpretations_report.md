@@ -1,6 +1,6 @@
 # Interpretations for Report — Key Analytical Visualizations
 
-**Dataset:** 580 articles | 11 flood events | EN, ES, PT  
+**Dataset:** 607 articles | 11 flood events | EN, ES, PT  
 **Framework:** Protective Action Decision Model (PADM) — Lindell & Perry (2012)  
 **Figures:** output/clustering_graphs/
 
@@ -9,7 +9,7 @@
 ## Figure 1 — Range of Article-Level Actionability
 `00_actionability_range.png`
 
-The strip plot establishes the structural context for all subsequent findings. Each dot represents one article plotted against its actionability percentage. The dense vertical cluster at 0% represents 404 articles (70% of the corpus) — every dot in that column scored zero across all sentences. The remaining 173 articles (30%) scatter rightward, with a median of 8.3% among those with any actionability and a long tail extending to 60%.
+The strip plot establishes the structural context for all subsequent findings. Each dot represents one article plotted against its actionability percentage. The dense vertical cluster at 0% represents 506 articles (83% of the corpus) — every dot in that column scored zero across all sentences. The remaining 101 articles (17%) scatter rightward, with a median of 10.0% among those with any actionability and a long tail extending to 40%.
 
 The key interpretive point is not simply that actionability is low on average, but that the distribution is strongly bimodal: the corpus divides sharply into articles that contain no actionable content at all and a minority that contain some. There is no gradient — an article either triggers advisory features or it does not. This pattern is consistent with the PADM prediction that actionable disaster communication is a deliberate editorial choice rather than a default property of flood coverage, and that the majority of outlets in this corpus do not make that choice.
 
@@ -33,15 +33,15 @@ This chart shows, for each PADM-relevant linguistic feature, the percentage of a
 ## Figure 3 — Mean Actionability by Dominant Frame
 `10_frame_actionability.png`
 
-The chart plots mean actionability percentage by dominant frame (impact, response, accountability, recovery), with ±1 SD error bars and the corpus mean (3.6%) as a reference line.
+The chart plots mean actionability percentage by dominant frame (impact, response, accountability, recovery), with ±1 SD error bars and the corpus mean (2.0%) as a reference line.
 
-**The central finding is that response-framed articles are not more actionable than impact-framed ones.** Impact articles average approximately 2.8% and response articles approximately 3.1% — both at or below the corpus mean and statistically indistinguishable given the overlapping standard deviations. The corpus *responds* to floods without *instructing* anyone. Response framing describes rescue operations, evacuation orders issued, and emergency resources deployed — but describes them as events happening to third parties rather than as guidance directed at the reader.
+**The central finding is that response-framed articles are not more actionable than impact-framed ones.** Impact articles average approximately 1.3% and response articles approximately 2.0% — both at or below the corpus mean and statistically indistinguishable given the overlapping standard deviations. The corpus *responds* to floods without *instructing* anyone. Response framing describes rescue operations, evacuation orders issued, and emergency resources deployed — but describes them as events happening to third parties rather than as guidance directed at the reader.
 
-**Accountability and recovery-framed articles score highest** (5.3% each), which is counterintuitive at first glance but interpretable: government warnings, official protocols, and criticism of inadequate preparation often contain embedded directives and institutional recommendations as supporting evidence for accountability claims. Mexican and Colombian national news outlets — which produce the bulk of the corpus's actionable content — frequently frame actionable guidance within accountability contexts.
+**Accountability-framed articles score highest** (3.6%), the only frame meaningfully above the corpus mean. Government warnings, official protocols, and criticism of inadequate preparation often contain embedded directives and institutional recommendations as supporting evidence for accountability claims. Mexican and Colombian national news outlets — which produce the bulk of the corpus's actionable content — frequently frame actionable guidance within accountability contexts.
 
-**Recovery framing** also averages 5.3%, above the corpus mean but based on a very small sample (n=24). These articles, which address reconstruction, resilience policy, and long-term planning, tend to embed specific recommendations and timelines.
+**Recovery framing** averages 0.9% — below even impact framing and the lowest of all four frames (n=26). Despite the intuition that recovery articles embed recommendations and timelines, this corpus's recovery coverage is predominantly descriptive, reporting on damage assessments and funding decisions rather than directing reader behaviour.
 
-**Implication for the RQ:** Dominant frame alone is insufficient to predict actionability. The mechanism driving actionability differences is the specific linguistic features within an article — particularly advice-framing verbs and imperative density — not the thematic orientation of the piece. An article can be fully response-framed while containing zero actionable sentences.
+**Implication for the RQ:** Dominant frame alone is insufficient to predict actionability. The mechanism driving actionability differences is the specific linguistic features within an article — particularly advice-framing verbs — not the thematic orientation of the piece. An article can be fully response-framed while containing zero actionable sentences.
 
 ---
 
@@ -61,19 +61,17 @@ This chart directly tests the mechanism behind the regional difference identifie
 ## Figure 5 — Cluster Profiles Across PADM Features (Heatmap)
 `12_cluster_padm_heatmap.png`
 
-The heatmap shows the four K-Means clusters (structural features, k=4) against five PADM-relevant structural features. Colour encodes raw mean score per cluster (darker = higher); values are annotated in each cell. Actionability was not used in clustering — the cluster structure was derived from these five features alone, and actionability was observed post-hoc.
+The heatmap shows the three K-Means clusters (structural features, k=3, silhouette=0.499) against five PADM-relevant structural features. Colour encodes raw mean score per cluster (darker = higher); values are annotated in each cell. Actionability was not used in clustering — the cluster structure was derived from these five features alone, and actionability was observed post-hoc.
 
-**Cluster 2 (Actionable Advisory, n=36)** is uniquely identified by a single feature: advice-framing (0.209, the highest value in its column). Its imperative signals are low (0.05) and its short-term urgency is moderate (0.097). This cluster scores 22.1% mean actionability — by far the highest of any cluster. That actionability is driven not by direct commands but by institutional recommendation language. These are articles that *recommend* protective actions rather than *ordering* them, consistent with the journalistic register of Mexican and Colombian national news, which frames guidance through official authority rather than direct address.
+**Cluster 1 (Actionable Advisory, n=39, 6% of corpus)** is defined by the highest advice-framing (0.185) and short-term urgency (0.328) of any cluster, combined with elevated spatial anchors (0.599). This cluster scores 18.0% mean actionability — by far the highest of any cluster. That actionability is driven primarily by institutional recommendation language rather than direct commands: articles that *recommend* protective actions through official authority rather than imperative address. This is the only cluster that approaches PADM compliance.
 
-**Cluster 1 (Urgency-Spatial, n=124)** has the highest imperative signals (0.215) and short-term urgency (0.356) of any cluster, combined with the highest spatial anchor density (0.630). This is the profile most consistent with classic PADM alert communication: locate the threat, signal urgency, issue a directive. Yet this cluster scores only 6.5% mean actionability — well below Cluster 2 despite having stronger directive signals. The components are present across the article but they rarely co-occur within a single sentence in a form that constitutes a complete protective action recommendation.
+**Cluster 2 (Recovery Discourse, n=19, 3% of corpus)** is defined by elevated long-term recovery keywords (0.456) alongside moderate spatial anchors (0.406) and short-term urgency (0.196), with 5.3% mean actionability. It reflects forward-looking institutional language about reconstruction, policy, and resilience — describing what will be done rather than what readers should do now.
 
-**Cluster 0 (Recovery Discourse, n=18)** is defined by elevated long-term recovery keywords (0.437) alongside high short-term urgency (0.215) and spatial anchors (0.356), with 6.3% mean actionability. It reflects forward-looking institutional language about what will be done rather than what readers should do now.
+**Cluster 0 (Descriptive Baseline, n=549, 90% of corpus)** scores near zero on advice-framing (0.002) and imperatives (0.015) with a mean actionability of 0.7%, confirming that the overwhelming majority of the corpus is behaviourally inert — geographically located and factually complete, but containing no advisory dimension.
 
-**Cluster 3 (Descriptive Baseline, n=402, 69% of corpus)** scores near zero on all five features, with a mean actionability of 0.9%, confirming that the majority of the corpus is behaviourally inert — describing events with no advisory dimension.
-
-**Overall heatmap interpretation:** The four clusters map cleanly onto four distinct failure modes relative to PADM: (3) no advisory features at all; (1) urgency and location present but no complete directive; (0) instructional language present but future-oriented, not reader-directed; (2) the only cluster approaching PADM compliance, representing 6% of the corpus. The heatmap makes visible that even the best-performing cluster achieves actionability through advice-framing rather than the full PADM sequence, suggesting that flood journalism in this corpus never fully closes the loop from threat identification to reader-executable protective action.
+**Overall heatmap interpretation:** The three clusters map onto three distinct relationships with PADM standards: (0) no advisory features; (2) instructional language present but future-oriented, not reader-directed; (1) the only cluster approaching PADM compliance, representing just 6% of the corpus. The concentration of 90% of articles in the descriptive baseline cluster — and the near-absence of advice-framing across all clusters — is the clearest structural evidence that flood journalism in this corpus does not meet PADM communication standards for protective action reporting.
 
 ---
 
-*Figures generated from: enriched.csv, cluster_summary_structural_k4.csv*  
+*Figures generated from: enriched.csv, cluster_summary_structural_k3.csv*  
 *Pipeline: nlp/actionability.py, nlp/clustering.py, generate_visualizations.py*

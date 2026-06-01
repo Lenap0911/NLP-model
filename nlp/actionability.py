@@ -493,11 +493,17 @@ def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFram
         raise KeyError(f'Missing columns: {required - set(df_by_sentence.columns)}')
 
     # Pre-create output frame aligned to df_by_sentence index
+    # NOTE: imperative_count/short_term_count/long_term_count/spatial_count are already
+    # computed by actionable_keyword_count() — do NOT duplicate them here or the concat
+    # produces two columns with the same name and the zeros overwrite the real values.
     features_df = pd.DataFrame(index=df_by_sentence.index)
     features_df['verbs_imperative'] = [[] for _ in range(len(df_by_sentence))]
     features_df['verbs_subjunctive'] = [[] for _ in range(len(df_by_sentence))]
     features_df['auxiliary_modals'] = [[] for _ in range(len(df_by_sentence))]
-    features_df['imperative_count'] = 0
+    features_df['subjunctive_count'] = 0
+    # NOTE: short_term_count/long_term_count/spatial_count ARE re-computed here via
+    # lemmatization (more accurate than regex). imperative_count is NOT added — it is
+    # computed by actionable_keyword_count() and must not be overwritten with zeros here.
     features_df['short_term_count'] = 0
     features_df['long_term_count'] = 0
     features_df['spatial_count'] = 0
@@ -525,7 +531,6 @@ def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFram
                 'verbs_imperative': [],
                 'verbs_subjunctive': [],
                 'auxiliary_modals': [],
-                'imperative_count': 0,
                 'subjunctive_count': 0,
                 'short_term_count': 0,
                 'long_term_count': 0,
