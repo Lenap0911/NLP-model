@@ -893,7 +893,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
             )
         return pd.Series(0.0, index=df_by_sentence.index)
 
-    density = (
+    density_raw = (
           3.0 * _col('imperative_count')
         + 1.5 * _col('short_term_count')
         + 1.5 * _col('long_term_count')
@@ -904,6 +904,8 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         + 1.0 * _col('srl_complete')
         + 20.0 * _col('advice')
     ) 
+   
+    density = density_raw 
 
     # 10. standardize density → actionability_probability in [0, 1] via min-max
     d_min = density.min()
