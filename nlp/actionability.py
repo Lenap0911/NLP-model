@@ -531,7 +531,7 @@ def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFram
                 'verbs_imperative': [],
                 'verbs_subjunctive': [],
                 'auxiliary_modals': [],
-        
+                'subjunctive_count': 0,
                 'short_term_count': 0,
                 'long_term_count': 0,
                 'spatial_count': 0,
