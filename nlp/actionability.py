@@ -933,6 +933,11 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         default=0,
     ).astype(int)
 
+    # scalar count of POS-detected imperatives per sentence (for article-level aggregation)
+    df_by_sentence['verbs_imperative_count'] = df_by_sentence['verbs_imperative'].apply(
+        lambda x: len(x) if isinstance(x, list) else 0
+    )
+
     # save sentence-level output to CSV
     sentences_path = os.path.join(config.OUTPUT_DIR, 'sentences_actionability.csv')
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
@@ -946,7 +951,8 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     # these feed directly into clustering as the feature matrix
     _sub_score_cols = [
         c for c in [
-            'imperative_count', 'short_term_count', 'long_term_count',
+            'imperative_count', 'verbs_imperative_count',
+            'short_term_count', 'long_term_count',
             'spatial_count', 'advice', 'srl_complete',
             'has_agent', 'has_action', 'has_location',
             'actionability_probability',

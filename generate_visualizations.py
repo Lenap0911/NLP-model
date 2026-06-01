@@ -211,7 +211,14 @@ def plot_padm_components(df: pd.DataFrame) -> None:
 
     for i, lang in enumerate(lang_order):
         sub = df[df['language'] == lang]
-        pcts = [(sub[col] > 0).mean() * 100 for col in components.values()]
+        pcts = []
+        for col in components.values():
+            if col == 'mean_imperative_count' and 'mean_verbs_imperative_count' in sub.columns:
+                # combine keyword-based (all languages) + POS-based (ES/PT morphology)
+                present = (sub['mean_imperative_count'] > 0) | (sub['mean_verbs_imperative_count'] > 0)
+                pcts.append(present.mean() * 100)
+            else:
+                pcts.append((sub[col] > 0).mean() * 100)
         bars = ax.bar(
             [xi + i * width for xi in x], pcts,
             width=width, label=LANG_LABELS.get(lang, lang),
