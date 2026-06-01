@@ -74,7 +74,7 @@ def assign_region(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df['region'] = df['country'].apply(
-        lambda c: 'North America' if str(c).strip() in config.GLOBAL_NORTH_COUNTRIES
+        lambda c: 'North America' if str(c).strip() in config.NORTH_AMERICA_COUNTRIES
         else 'South America'
     )
     counts = df['region'].value_counts().to_dict()

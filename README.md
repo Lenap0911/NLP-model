@@ -122,7 +122,7 @@ A weighted density score is normalised to `actionability_probability` (0–1), t
 Computes `actionability_percentage` distributions by global region, country, domain, and language. Saved as `group_stats_*.csv`.
 
 North America = US + Canada. All other Americas countries = South America.  
-To change this, edit `GLOBAL_NORTH_COUNTRIES` in `config/nlp_config.py`.
+To change this, edit `NORTH_AMERICA_COUNTRIES` in `config/nlp_config.py`.
 
 **Stage 2 — Data-driven HDBSCAN**  
 Clusters articles on normalised actionability feature vectors. Output column: `data_cluster_id` (−1 = noise). Summary saved to `cluster_summary.csv`.
