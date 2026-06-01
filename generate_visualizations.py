@@ -281,6 +281,56 @@ def plot_frame_actionability(df: pd.DataFrame) -> None:
     _save(fig, '10_frame_actionability.png')
 
 
+# ── 10b. Frame × Actionability by language ───────────────────────────────────
+def plot_frame_actionability_by_language(df: pd.DataFrame) -> None:
+    if 'dominant_frame' not in df.columns:
+        print('dominant_frame missing — skipping frame by language plots')
+        return
+
+    frame_order = ['impact', 'response', 'accountability', 'recovery']
+    frame_colors = {
+        'impact': '#e15759', 'response': '#4e79a7',
+        'accountability': '#f28e2b', 'recovery': '#59a14f',
+    }
+    lang_names = {'en': 'English', 'es': 'Spanish', 'pt': 'Portuguese'}
+
+    for lang, label in lang_names.items():
+        sub = df[df['language'] == lang]
+        if sub.empty:
+            continue
+
+        stats = (
+            sub.groupby('dominant_frame')['actionability_percentage']
+            .agg(['mean', 'count', 'std'])
+            .reindex(frame_order).reset_index()
+        )
+
+        fig, ax = plt.subplots(figsize=(9, 5))
+        colors = [frame_colors.get(f, '#aaa') for f in stats['dominant_frame']]
+        bars = ax.bar(stats['dominant_frame'], stats['mean'], color=colors,
+                      edgecolor='white', alpha=0.9, zorder=3)
+        ax.errorbar(stats['dominant_frame'], stats['mean'],
+                    yerr=stats['std'], fmt='none', color='#333333',
+                    capsize=4, linewidth=1.2, zorder=4)
+
+        for bar, (_, row) in zip(bars, stats.iterrows()):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + (row['std'] or 0) + 0.1,
+                    f"n={int(row['count'])}" if not pd.isna(row['count']) else '',
+                    ha='center', va='bottom', fontsize=8.5)
+
+        ax.axhline(sub['actionability_percentage'].mean(), color='#555', linewidth=1.2,
+                   linestyle='--', label=f"Language mean ({sub['actionability_percentage'].mean():.1f}%)")
+        ax.set_title(f'Mean actionability by dominant frame — {label}\n(error bars = ±1 SD)',
+                     fontsize=12, fontweight='bold')
+        ax.set_xlabel('')
+        ax.set_ylabel('Mean actionability (%)')
+        ax.set_ylim(bottom=0)
+        ax.legend(fontsize=9)
+        plt.tight_layout()
+        _save(fig, f'10_{lang}_frame_actionability.png')
+
+
 # ── 11. Source type × Region (H₁ mechanism) ──────────────────────────────────
 def plot_source_region(df: pd.DataFrame) -> None:
     if 'source_type' not in df.columns or 'global_region' not in df.columns:
@@ -415,6 +465,7 @@ if __name__ == '__main__':
     plot_cluster_profiles(df)
     plot_padm_components(df)
     plot_frame_actionability(df)
+    plot_frame_actionability_by_language(df)
     plot_source_region(df)
     plot_cluster_padm_heatmap(df)
 
