@@ -13,7 +13,7 @@
 | Portuguese (PT) | 240 | 1.69% | 33.3% |
 | English (EN) | 139 | 1.45% | 25.0% |
 
-Spanish content is the most actionable on average, though the median is 0% across all three languages — actionability is rare regardless of language. The corpus skews toward Portuguese by article count (41.4%) yet PT produces the lowest mean actionability, reflecting the dominance of low-actionability Brazilian regional outlets. English content, primarily from the United States, scores lowest despite coming from a Global North context.
+Spanish content is the most actionable on average, though the median is 0% across all three languages — actionability is rare regardless of language. The corpus skews toward Portuguese by article count (41.4%) yet PT produces the lowest mean actionability, reflecting the dominance of low-actionability Brazilian regional outlets. English content, primarily from the United States, scores lowest despite coming from a North America context.
 
 ---
 
@@ -21,10 +21,10 @@ Spanish content is the most actionable on average, though the median is 0% acros
 
 | Region | Articles | Mean actionability | Share of corpus |
 |--------|----------|--------------------|-----------------|
-| Global South | 448 | 2.38% | 77.2% |
-| Global North | 129 | 1.56% | 22.2% |
+| South America | 448 | 2.38% | 77.2% |
+| North America | 129 | 1.56% | 22.2% |
 
-Global South coverage is marginally more actionable than Global North, which runs counter to the hypothesis that richer-country outlets produce more guidance-oriented reporting. This is driven by the concentration of actionable Mexican national news within the Global South category. Global North coverage (US and Canada) is dominated by descriptive impact reporting and retrospective journalism.
+South America coverage is marginally more actionable than North America, which runs counter to the hypothesis that richer-country outlets produce more guidance-oriented reporting. This is driven by the concentration of actionable Mexican national news within the South America category. North America coverage (US and Canada) is dominated by descriptive impact reporting and retrospective journalism.
 
 ---
 

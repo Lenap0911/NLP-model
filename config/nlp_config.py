@@ -115,8 +115,8 @@ ACTIONABILITY_KEYWORDS = {
 
 # ── global north / global south classification ────────────────────────────────
 # used by clustering.py to assign each article's country to a world-system tier
-# Global North: high-income OECD countries (US, Canada)
-# Global South: all other Americas countries in the dataset
+# North America: US and Canada
+# South America: all other Americas countries in the dataset
 # extend this dict when adding new flood events
 GLOBAL_NORTH_COUNTRIES = {
     'United States of America',
@@ -124,7 +124,7 @@ GLOBAL_NORTH_COUNTRIES = {
     'USA',
     'Canada',
 }
-# all other countries in the dataset are treated as Global South by default
+# all other countries in the dataset are treated as South America by default
 
 # ── clustering ────────────────────────────────────────────────────────────────
 # K-Means on normalised actionability feature vectors

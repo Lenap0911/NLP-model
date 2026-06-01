@@ -60,12 +60,12 @@ _STOPWORDS: dict[str, list[str]] = {
 }
 
 
-# ── Stage 1a: Global North / South assignment ─────────────────────────────────
+# ── Stage 1a: North America / South assignment ─────────────────────────────────
 
 def assign_global_region(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Assigns each article to 'Global North' or 'Global South' based on country.
-    Uses GLOBAL_NORTH_COUNTRIES from config; everything else is Global South.
+    Assigns each article to 'North America' or 'South America' based on country.
+    Uses GLOBAL_NORTH_COUNTRIES from config; everything else is South America.
     Adds column: global_region
     """
     if 'country' not in df.columns:
@@ -74,8 +74,8 @@ def assign_global_region(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df['global_region'] = df['country'].apply(
-        lambda c: 'Global North' if str(c).strip() in config.GLOBAL_NORTH_COUNTRIES
-        else 'Global South'
+        lambda c: 'North America' if str(c).strip() in config.GLOBAL_NORTH_COUNTRIES
+        else 'South America'
     )
     counts = df['global_region'].value_counts().to_dict()
     logger.info(f'global region assignment: {counts}')
@@ -108,7 +108,7 @@ def _group_stats(df: pd.DataFrame, group_col: str, score_col: str = 'actionabili
 def compute_group_distributions(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """
     Stage 1: computes actionability score distributions for three predefined groupings:
-      - global_region  (Global North / Global South)
+      - global_region  (North America / South America)
       - domain         (website domain extracted from url, or domain column if present)
       - country
 
@@ -394,7 +394,7 @@ def run_clustering(df: pd.DataFrame) -> pd.DataFrame:
     no embeddings required.
 
     Stage 1 — Predefined categorical grouping:
-      Assigns each article to Global North / Global South, then computes actionability
+      Assigns each article to North America / South America, then computes actionability
       score distributions by global_region, country, domain, and language.
       Saves group_stats_<group>.csv for each grouping.
 
@@ -407,7 +407,7 @@ def run_clustering(df: pd.DataFrame) -> pd.DataFrame:
     separately after this function.
 
     Output columns added to df:
-      global_region    — 'Global North' or 'Global South'
+      global_region    — 'North America' or 'South America'
       data_cluster_id  — HDBSCAN cluster id (-1 = noise/outlier)
     """
     logger.info('=== Clustering Stage 1: predefined group distributions ===')

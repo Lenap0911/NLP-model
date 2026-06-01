@@ -88,14 +88,14 @@ def plot_actionability_by_language(df: pd.DataFrame) -> None:
     _save(fig, '03_actionability_by_language.png')
 
 
-# ── 4. Actionability by Global North / South ─────────────────────────────────
+# ── 4. Actionability by North America / South ─────────────────────────────────
 def plot_actionability_by_region(df: pd.DataFrame) -> None:
     if 'global_region' not in df.columns:
         print('global_region column not found — skipping plot 4')
         return
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    fig.suptitle('Actionability: Global North vs Global South', fontsize=12, fontweight='bold')
+    fig.suptitle('Actionability: North America vs South America', fontsize=12, fontweight='bold')
 
     # boxplot
     sns.boxplot(data=df, x='global_region', y='actionability_percentage',
@@ -346,12 +346,12 @@ def plot_source_region(df: pd.DataFrame) -> None:
     sns.barplot(
         data=df, x='source_type', y='actionability_percentage',
         hue='global_region', order=type_order,
-        palette={'Global North': '#4e79a7', 'Global South': '#f28e2b'},
+        palette={'North America': '#4e79a7', 'South America': '#f28e2b'},
         ax=ax, errorbar='sd', alpha=0.9
     )
     ax.set_title(
         'Mean actionability by source type and region\n'
-        'Global South advantage is concentrated in national news — not a regional pattern',
+        'South America advantage is concentrated in national news — not a regional pattern',
         fontsize=12, fontweight='bold'
     )
     ax.set_xlabel('')

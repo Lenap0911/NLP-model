@@ -187,7 +187,7 @@ dot.node('step4', step_node(
 dot.node('step5', step_node(
     'STEP 5: CLUSTERING', 'clustering.py',
     ['Fully enriched df from Step 4'],
-    ['Global North / South region assignment',
+    ['North America / South region assignment',
      'Group stats by region, country, domain, language',
      'Z-score normalisation of 6 structural features',
      'K-Means at k = 3, 4, 5 on structural and full sets',

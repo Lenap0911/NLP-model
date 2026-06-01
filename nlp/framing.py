@@ -5,7 +5,7 @@
 #                  who caused it, what should be done, and what is the moral judgment
 #   Zade et al. (2018): actionability bias — response and recovery frames carry
 #                       more operational utility than impact or accountability frames
-#   Khawaja et al. (2025): Global North / South divergence in framing of same events
+#   Khawaja et al. (2025): North America / South divergence in framing of same events
 #
 # Four primary frames (Entman 1993 + disaster journalism literature):
 #   impact:         describes what the flood did (casualties, damage, displacement)

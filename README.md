@@ -1,6 +1,6 @@
 # Americas Flood NLP Pipeline
 
-NLP analysis of flood-related news articles from the Americas (EN, ES, PT), extracted from Common Crawl. The core research goal is to measure **actionability** of flood coverage across regions (Global North vs Global South) and identify where CC systematically under-represents certain source types.
+NLP analysis of flood-related news articles from the Americas (EN, ES, PT), extracted from Common Crawl. The core research goal is to measure **actionability** of flood coverage across regions (North America vs South America) and identify where CC systematically under-represents certain source types.
 
 **Current dataset:** `verified_articles_clean.csv` — 612 rows, 580 after filtering, covering multiple flood events across the Americas (EN, ES, PT).  
 **Flood event metadata:** `verified_floods_with_articles.csv` — flood event reference table.
@@ -121,7 +121,7 @@ A weighted density score is normalised to `actionability_probability` (0–1), t
 **Stage 1 — Predefined group distributions**  
 Computes `actionability_percentage` distributions by global region, country, domain, and language. Saved as `group_stats_*.csv`.
 
-Global North = US + Canada. All other Americas countries = Global South.  
+North America = US + Canada. All other Americas countries = South America.  
 To change this, edit `GLOBAL_NORTH_COUNTRIES` in `config/nlp_config.py`.
 
 **Stage 2 — Data-driven HDBSCAN**  

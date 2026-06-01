@@ -212,7 +212,7 @@ def cross_lingual_similarity(
     relying on a hardcoded absolute score.
 
     Grounding: El Ouadi (2025) cross-lingual flood coverage comparison;
-    Khawaja et al. (2025) Global North / South media framing.
+    Khawaja et al. (2025) North America / South media framing.
     Returns a dataframe sorted by similarity descending.
     Columns: lang_a, lang_b, idx_a, idx_b, similarity, url_a, url_b
     """

@@ -2,7 +2,7 @@
 # source authority classification grounded in the actual dataset domains
 # theoretical grounding:
 #   Gordon (2000): authority as a dimension of source credibility in news
-#   Khawaja et al. (2025): Global North vs Global South media framing
+#   Khawaja et al. (2025): North America vs South America media framing
 #
 # Two dimensions per article:
 #   scope:       government | national | regional | local | ngo
