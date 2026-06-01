@@ -191,16 +191,16 @@ dot.node('step5', step_node(
      'Group stats by region, country, domain, language',
      'Z-score normalisation of 6 structural features',
      'K-Means at k = 3, 4, 5 on structural and full sets',
-     'Silhouette scoring: k = 4 selected (score 0.332)'],
+     'Silhouette scoring: k = 3 selected (score 0.499)'],
     ['data_cluster_id per article',
-     'cluster_summary_structural_k4.csv',
+     'cluster_summary_structural_k3.csv',
      'group_stats_*.csv'],
     '#117A65',
 ))
 
 dot.node('output', output_node([
     ('enriched.csv',                      '580 rows x 33 columns — all pipeline features per article'),
-    ('cluster_summary_structural_k4.csv', 'Cluster profiles: mean scores, top country / language / source type'),
+    ('cluster_summary_structural_k3.csv', 'Cluster profiles: mean scores, top country / language / source type'),
     ('group_stats_*.csv',                 'Actionability distributions by region, country, domain, language'),
     ('interpretations.md',                'Written interpretation of cluster structure and findings'),
 ]))
