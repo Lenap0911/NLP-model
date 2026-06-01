@@ -43,6 +43,7 @@ def _get_spacy(lang: str):
 
 
 
+
 def split_into_sentences(text: str) -> list[str]:
     """Split a paragraph into sentences with guardrails.
 
@@ -51,6 +52,11 @@ def split_into_sentences(text: str) -> list[str]:
       (prevents splitting on abbreviations like "U.S." / "p.m." / "S.P.")
     - only allow a split if the next non-space character starts with a capital letter
       (helps avoid mid-sentence splits, but note: this can be too strict for languages like es/pt)
+
+    Extra tweak:
+    - if the next token begins with quotes/brackets, skip them and inspect the next real character
+      so sentences like: ... reach of the Rio Grande. "In advising people ...
+      are not incorrectly merged.
     """
     if text is None:
         return []
@@ -59,7 +65,6 @@ def split_into_sentences(text: str) -> list[str]:
     if not text:
         return []
 
-    # Prevent sentencizer from treating a.m./p.m. as sentence-ending punctuation
     _AMPM_TOKEN = "<AMPM>"
     text = re.sub(r"\b([ap])\.m\.\b", r"\1" + _AMPM_TOKEN, text, flags=re.IGNORECASE)
 
@@ -69,29 +74,39 @@ def split_into_sentences(text: str) -> list[str]:
 
     sents = [s.text.strip() for s in doc.sents if s.text and s.text.strip()]
 
-    # Restore a.m./p.m.
     sents = [
         re.sub(r"\b([ap])" + re.escape(_AMPM_TOKEN) + r"\b", r"\1.m.", s, flags=re.IGNORECASE)
         for s in sents
     ]
 
-    # --- NEW: post-merge "bad boundary" fixer based on original text positions ---
-    # We re-join adjacent sentences if the boundary looks suspicious.
+    # --- post-merge "bad boundary" fixer based on original text positions ---
 
-    def _next_non_space_char(start_idx: int) -> str | None:
+    _LEADING_QUOTE_CHARS = """\"'“”‘’«»‹›¿"""
+    _LEADING_BRACKETS = "([{"  # optional: treat these like quotes at sentence start
+
+    def _next_real_char(start_idx: int) -> str | None:
+        """Return next non-space, skipping opening quotes/brackets."""
         if start_idx is None:
             return None
-        m = re.search(r"\S", text[start_idx:])
-        return None if m is None else text[start_idx + m.start()]
+
+        i = start_idx
+        # skip whitespace
+        while i < len(text) and text[i].isspace():
+            i += 1
+        # skip runs of opening quotes/brackets
+        while i < len(text) and text[i] in (_LEADING_QUOTE_CHARS + _LEADING_BRACKETS):
+            i += 1
+            while i < len(text) and text[i].isspace():
+                i += 1
+
+        return None if i >= len(text) else text[i]
 
     repaired: list[str] = []
-    cursor = 0  # where we are in the original text
+    cursor = 0
 
     for sent in sents:
-        # find this sent in the original text at/after cursor (best effort)
         pos = text.find(sent.replace(" ", " "), cursor)
         if pos == -1:
-            # fallback: just append; cannot reason about boundary
             repaired.append(sent)
             continue
 
@@ -102,14 +117,9 @@ def split_into_sentences(text: str) -> list[str]:
             repaired.append(sent)
             continue
 
-        # boundary checks: should we MERGE previous + this sentence?
-        # 1) if within next 5 chars after previous boundary there's another .!? → likely abbreviation chain
-        prev = repaired[-1]
-        prev_end_in_text = text.find(prev, 0)
-        # we don't have exact prev end reliably; instead use current start as boundary anchor
         boundary_idx = pos  # start of current sentence
         lookback = max(0, boundary_idx - 10)
-        # locate the punctuation that ended the previous sentence near the boundary
+
         prev_punct_idx = None
         for j in range(boundary_idx - 1, lookback - 1, -1):
             if text[j] in ".!?":
@@ -123,8 +133,8 @@ def split_into_sentences(text: str) -> list[str]:
             if any(ch in ".!?" for ch in window):
                 merge = True
 
-        # 2) only allow split if next non-space char is uppercase (A-Z or accented uppercase)
-        nxt = _next_non_space_char(boundary_idx)
+        # 2) only allow split if next "real" char is uppercase
+        nxt = _next_real_char(boundary_idx)
         if nxt is not None:
             if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ]", nxt):
                 merge = True
