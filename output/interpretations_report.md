@@ -20,13 +20,13 @@ The key interpretive point is not simply that actionability is low on average, b
 
 This chart shows, for each PADM-relevant linguistic feature, the percentage of articles in which at least one sentence triggered that feature, broken down by language. It directly answers the research question by showing which elements of actionable communication the corpus routinely delivers and which it systematically omits.
 
-**Spatial anchors** are present in 70–81% of articles — flood coverage consistently locates events geographically, which satisfies one PADM criterion (named location) but not the directive criterion (what to do there).
+**Spatial anchors** are present in 68–92% of articles — flood coverage consistently locates events geographically, with Spanish (88%) and Portuguese (92%) outlets anchoring events more precisely than English (68%). This satisfies one PADM criterion (named location) but not the directive criterion (what to do there).
 
-**Imperative signals** and **short-term urgency** are present in roughly 40–52% of articles, with Portuguese significantly lower on imperatives (18%) than English (45%) or Spanish (41%). This cross-linguistic gap reflects the different journalistic registers of Brazilian regional Portuguese outlets, which tend toward descriptive rather than directive language.
+**Short-term urgency** is present in roughly 51–56% of articles across all three languages, with English slightly lower (51%) than Spanish and Portuguese (both 56%). **Imperative signals** — measured by combining keyword-based detection with morphological POS tagging for Spanish and Portuguese conjugated imperatives — are present in 34% of English articles, 16% of Portuguese, and only 10% of Spanish. The lower Spanish figure reflects that the POS-based detection captures conjugated imperative forms that differ substantially from the keyword list, while English keyword matching covers a broader range of directive verbs.
 
-**Advice-framing** is the rarest component across all languages — present in fewer than 12% of articles in any language group. This is the PADM element most directly associated with concrete protective action recommendations (PARs): verbs of institutional recommendation (*recommends*, *urges*, *suggests*) that signal actionable guidance without requiring a grammatical imperative. Its near-absence across the corpus is the single most direct evidence that flood journalism does not meet PADM communication standards.
+**Advice-framing** is the rarest component across all languages — present in 13% of Spanish articles, 7% of English, and only 5% of Portuguese. This is the PADM element most directly associated with concrete protective action recommendations (PARs): verbs of institutional recommendation (*recommends*, *urges*, *suggests*) that signal actionable guidance without requiring a grammatical imperative. Its near-absence across the corpus is the single most direct evidence that flood journalism does not meet PADM communication standards.
 
-**Cross-linguistic pattern:** The profile is broadly similar across EN, ES, and PT — all three languages are advice-framing poor while maintaining strong spatial and urgency signals. The differences are of degree, not kind. This consistency supports treating the failure as a genre-level property of flood journalism rather than a language-specific artifact.
+**Cross-linguistic pattern:** All three language groups share the same structural profile — strong spatial and urgency signals, near-absent advice-framing. The differences are of degree, not kind, and no language group comes close to meeting PADM standards for actionable communication.
 
 ---
 
@@ -42,6 +42,27 @@ The chart plots mean actionability percentage by dominant frame (impact, respons
 **Recovery framing** averages 0.9% — below even impact framing and the lowest of all four frames (n=26). Despite the intuition that recovery articles embed recommendations and timelines, this corpus's recovery coverage is predominantly descriptive, reporting on damage assessments and funding decisions rather than directing reader behaviour.
 
 **Implication for the RQ:** Dominant frame alone is insufficient to predict actionability. The mechanism driving actionability differences is the specific linguistic features within an article — particularly advice-framing verbs — not the thematic orientation of the piece. An article can be fully response-framed while containing zero actionable sentences.
+
+---
+
+## Figure 3a — Mean Actionability by Frame — English
+`10_en_frame_actionability.png`
+
+Among English-language articles (n=94, mean 0.9%), all four frames score below 1.2% and are statistically indistinguishable. Accountability framing averages only 0.35% — the lowest of any frame in any language — reflecting that English-language coverage in this corpus is dominated by US and Canadian regional and wire-service outlets, which report on official actions without embedding actionable directives. The near-zero variance across frames confirms that dominant frame is not a predictor of actionability in English flood journalism.
+
+---
+
+## Figure 3b — Mean Actionability by Frame — Spanish
+`10_es_frame_actionability.png`
+
+Spanish-language articles (n=200, mean 3.1%) show the clearest frame differentiation in the corpus. Accountability-framed articles average 6.0% — nearly double the language mean and three times the impact frame (1.7%). This pattern is driven by Mexican and Colombian national news outlets, which produce the majority of Spanish accountability coverage and embed institutional directives within criticism of government preparedness. Response (2.0%) and recovery (1.3%) frames remain below the language mean. The accountability gap in Spanish is the primary driver of the corpus-level finding that accountability framing is the most actionable frame overall.
+
+---
+
+## Figure 3c — Mean Actionability by Frame — Portuguese
+`10_pt_frame_actionability.png`
+
+Portuguese-language articles (n=313, mean 1.6%) show a flatter frame profile than Spanish, with all four frames within a narrow band. Response framing is marginally highest (2.3%), followed by accountability (2.0%), impact (1.0%), and recovery (0.7%). The near-equivalence across frames suggests that in Brazilian regional journalism — which dominates the Portuguese corpus — frame choice does not reflect a substantive editorial decision to include or exclude actionable content. Articles across all frames share the same descriptive baseline profile.
 
 ---
 
@@ -74,4 +95,5 @@ The heatmap shows the three K-Means clusters (structural features, k=3, silhouet
 ---
 
 *Figures generated from: enriched.csv, cluster_summary_structural_k3.csv*  
-*Pipeline: nlp/actionability.py, nlp/clustering.py, generate_visualizations.py*
+*Pipeline: nlp/actionability.py, nlp/clustering.py, generate_visualizations.py*  
+*Figures: 00, 09, 10, 10_en, 10_es, 10_pt, 11, 12*
