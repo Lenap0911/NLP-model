@@ -81,25 +81,31 @@ def split_into_sentences(text: str) -> list[str]:
 
     # --- post-merge "bad boundary" fixer based on original text positions ---
 
-    _LEADING_QUOTE_CHARS = """\"'“”‘’«»‹›¿"""
-    _LEADING_BRACKETS = "([{"  # optional: treat these like quotes at sentence start
+# Include Spanish inverted punctuation as "leading openers" at sentence start.
+    _LEADING_QUOTE_CHARS = "\"'“”‘’«»‹›"
+    _LEADING_INVERTED_PUNCT = "¿¡"
+    _LEADING_BRACKETS = "([{"
 
     def _next_real_char(start_idx: int) -> str | None:
-        """Return next non-space, skipping opening quotes/brackets."""
+        """Return next non-space, skipping opening quotes/brackets/inverted punct."""
         if start_idx is None:
             return None
 
         i = start_idx
+
         # skip whitespace
         while i < len(text) and text[i].isspace():
             i += 1
-        # skip runs of opening quotes/brackets
-        while i < len(text) and text[i] in (_LEADING_QUOTE_CHARS + _LEADING_BRACKETS):
+
+        # skip runs of openers like quotes/brackets/¿¡ (possibly separated by spaces)
+        OPENERS = _LEADING_QUOTE_CHARS + _LEADING_BRACKETS + _LEADING_INVERTED_PUNCT
+        while i < len(text) and text[i] in OPENERS:
             i += 1
             while i < len(text) and text[i].isspace():
                 i += 1
 
         return None if i >= len(text) else text[i]
+
 
     repaired: list[str] = []
     cursor = 0
@@ -136,7 +142,7 @@ def split_into_sentences(text: str) -> list[str]:
         # 2) only allow split if next "real" char is uppercase
         nxt = _next_real_char(boundary_idx)
         if nxt is not None:
-            if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ]", nxt):
+            if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ0-9]", nxt):
                 merge = True
 
         if merge:
