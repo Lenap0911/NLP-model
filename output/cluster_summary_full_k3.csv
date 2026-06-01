@@ -1,4 +1,4 @@
-cluster,n_articles,actionability_percentage,mean_actionability_probability,mean_imperative_count,mean_short_term_count,mean_long_term_count,mean_spatial_count,mean_advice,mean_srl_complete,actionability_percentage_mean,top_country,top_country_pct,top_language,top_language_pct,top_global_region,top_global_region_pct,top_source_type,top_source_type_pct
-full_k3_c0,387,0.1388,0.0433,0.011,0.0683,0.0141,0.2703,0.0007,0.684,0.1388,Brazil,51.9,pt,51.9,Global South,85.0,unknown,39.3
-full_k3_c1,35,20.2231,0.2227,0.0872,0.435,0.0048,0.6649,0.1882,0.7476,20.2231,Brazil,42.9,es,54.3,Global South,97.1,regional_news,40.0
-full_k3_c2,185,2.4011,0.0863,0.0289,0.2886,0.0615,0.6562,0.0085,0.8169,2.4011,Brazil,52.4,pt,52.4,Global South,90.8,regional_news,33.5
+cluster,n_articles,actionability_percentage,mean_actionability_probability,mean_imperative_count,mean_short_term_count,mean_long_term_count,mean_spatial_count,mean_advice,mean_srl_complete,actionability_percentage_mean,top_country,top_country_pct,top_language,top_language_pct,top_region,top_region_pct,top_source_type,top_source_type_pct
+full_k3_c0,387,0.1388,0.0433,0.011,0.0683,0.0141,0.2703,0.0007,0.684,0.1388,Brazil,51.9,pt,51.9,South America,85.0,unknown,39.3
+full_k3_c1,35,20.2231,0.2227,0.0872,0.435,0.0048,0.6649,0.1882,0.7476,20.2231,Brazil,42.9,es,54.3,South America,97.1,regional_news,40.0
+full_k3_c2,185,2.4011,0.0863,0.0289,0.2886,0.0615,0.6562,0.0085,0.8169,2.4011,Brazil,52.4,pt,52.4,South America,90.8,regional_news,33.5

@@ -90,22 +90,22 @@ def plot_actionability_by_language(df: pd.DataFrame) -> None:
 
 # ── 4. Actionability by North America / South ─────────────────────────────────
 def plot_actionability_by_region(df: pd.DataFrame) -> None:
-    if 'global_region' not in df.columns:
-        print('global_region column not found — skipping plot 4')
+    if 'region' not in df.columns:
+        print('region column not found — skipping plot 4')
         return
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle('Actionability: North America vs South America', fontsize=12, fontweight='bold')
 
     # boxplot
-    sns.boxplot(data=df, x='global_region', y='actionability_percentage',
+    sns.boxplot(data=df, x='region', y='actionability_percentage',
                 palette=['#4e79a7', '#f28e2b'], ax=axes[0])
     axes[0].set_title('Distribution')
     axes[0].set_xlabel('')
     axes[0].set_ylabel('Actionability (%)')
 
     # article count
-    counts = df['global_region'].value_counts()
+    counts = df['region'].value_counts()
     counts.plot.bar(ax=axes[1], color=['#4e79a7', '#f28e2b'], edgecolor='white')
     axes[1].set_title('Article count')
     axes[1].set_xlabel('')
@@ -162,17 +162,17 @@ def plot_frame_distribution(df: pd.DataFrame) -> None:
 
 # ── 7. Frame × Global region (normalised to proportions) ─────────────────────
 def plot_frame_by_region(df: pd.DataFrame) -> None:
-    if 'dominant_frame' not in df.columns or 'global_region' not in df.columns:
-        print('dominant_frame or global_region missing — skipping plot 7')
+    if 'dominant_frame' not in df.columns or 'region' not in df.columns:
+        print('dominant_frame or region missing — skipping plot 7')
         return
 
     frame_region = (
-        df.groupby(['global_region', 'dominant_frame'])
+        df.groupby(['region', 'dominant_frame'])
         .size().reset_index(name='count')
     )
-    totals = frame_region.groupby('global_region')['count'].transform('sum')
+    totals = frame_region.groupby('region')['count'].transform('sum')
     frame_region['pct'] = frame_region['count'] / totals * 100
-    pivot = frame_region.pivot(index='dominant_frame', columns='global_region', values='pct').fillna(0)
+    pivot = frame_region.pivot(index='dominant_frame', columns='region', values='pct').fillna(0)
 
     fig, ax = plt.subplots(figsize=(9, 5))
     pivot.plot.bar(ax=ax, color=['#4e79a7', '#f28e2b'], edgecolor='white', alpha=0.88)
@@ -333,8 +333,8 @@ def plot_frame_actionability_by_language(df: pd.DataFrame) -> None:
 
 # ── 11. Source type × Region (H₁ mechanism) ──────────────────────────────────
 def plot_source_region(df: pd.DataFrame) -> None:
-    if 'source_type' not in df.columns or 'global_region' not in df.columns:
-        print('source_type or global_region missing — skipping plot 11')
+    if 'source_type' not in df.columns or 'region' not in df.columns:
+        print('source_type or region missing — skipping plot 11')
         return
 
     type_order = (
@@ -345,7 +345,7 @@ def plot_source_region(df: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(11, 5))
     sns.barplot(
         data=df, x='source_type', y='actionability_percentage',
-        hue='global_region', order=type_order,
+        hue='region', order=type_order,
         palette={'North America': '#4e79a7', 'South America': '#f28e2b'},
         ax=ax, errorbar='sd', alpha=0.9
     )
@@ -437,6 +437,111 @@ def plot_cluster_profiles(df: pd.DataFrame) -> None:
     _save(fig, '08_cluster_profiles.png')
 
 
+# ── 13b. Actionability range histogram ───────────────────────────────────────
+def plot_actionability_range_bar(df: pd.DataFrame) -> None:
+    import matplotlib.ticker as mticker
+    import numpy as np
+    s = df['actionability_percentage'].dropna()
+
+    mean_val   = s.mean()
+    median_val = s.median()
+    q25, q75   = s.quantile(0.25), s.quantile(0.75)
+    q10, q90   = s.quantile(0.10), s.quantile(0.90)
+
+    # bins: 1% wide from 0 to ceil(max), first bin catches the zero spike
+    max_val  = s.max()
+    bin_edges = np.arange(0, max_val + 2, 2)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ax.hist(s, bins=bin_edges, color='#4e79a7', edgecolor='white', alpha=0.85, zorder=2)
+
+    # IQR shaded band
+    ax.axvspan(q25, q75, alpha=0.15, color='#4e79a7', label=f'IQR (Q1={q25:.1f}%–Q3={q75:.1f}%)', zorder=1)
+    # 10th–90th percentile band
+    ax.axvspan(q10, q90, alpha=0.08, color='#4e79a7', label=f'10th–90th pct ({q10:.1f}%–{q90:.1f}%)', zorder=1)
+
+    # mean and median vertical lines
+    ax.axvline(mean_val,   color='#e15759', linewidth=2, linestyle='--', label=f'Mean = {mean_val:.2f}%',   zorder=3)
+    ax.axvline(median_val, color='#f28e2b', linewidth=2, linestyle=':',  label=f'Median = {median_val:.1f}%', zorder=3)
+
+    ax.set_yscale('log')
+
+    # count labels on top of each bar (skip empty bins)
+    for patch in ax.patches:
+        h = patch.get_height()
+        if h > 0:
+            ax.text(patch.get_x() + patch.get_width() / 2, h * 1.15,
+                    str(int(h)), ha='center', va='bottom', fontsize=8, color='#333333')
+
+    ax.set_xlabel('Article-level actionability (%)', fontsize=12, labelpad=8)
+    ax.set_ylabel('Number of articles (log scale)', fontsize=12, labelpad=8)
+    ax.set_title(f'Distribution of article-level actionability  (N={len(s):,} articles)',
+                 fontsize=13, fontweight='bold')
+    ax.xaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.legend(fontsize=9, frameon=False)
+    plt.tight_layout()
+    _save(fig, '13b_actionability_range_histogram.png')
+
+
+# ── 12b. Frame distribution by cluster (stacked 100% bar) ────────────────────
+def plot_frame_by_cluster(df: pd.DataFrame) -> None:
+    import matplotlib.ticker as mticker
+    if 'data_cluster_id' not in df.columns or 'dominant_frame' not in df.columns:
+        print('data_cluster_id or dominant_frame missing — skipping plot 12b')
+        return
+
+    frame_colors = {
+        'impact':         '#e15759',
+        'response':       '#4e79a7',
+        'accountability': '#f28e2b',
+        'recovery':       '#59a14f',
+    }
+    frame_order = ['impact', 'response', 'accountability', 'recovery']
+
+    plot_df = df[['data_cluster_id', 'dominant_frame']].dropna()
+    plot_df = plot_df[plot_df['dominant_frame'].isin(frame_order)].copy()
+    plot_df['cluster_label'] = plot_df['data_cluster_id'].astype(int).apply(lambda x: f'Cluster {x}')
+
+    ct = (
+        plot_df.groupby(['cluster_label', 'dominant_frame'])
+               .size().unstack(fill_value=0)
+               .reindex(columns=frame_order, fill_value=0)
+    )
+    ct_pct = ct.div(ct.sum(axis=1), axis=0) * 100
+    ct_pct = ct_pct.sort_index()
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bottom = [0.0] * len(ct_pct)
+    for frame in frame_order:
+        vals = ct_pct[frame].values if frame in ct_pct.columns else [0.0] * len(ct_pct)
+        bars = ax.bar(ct_pct.index, vals, bottom=bottom,
+                      label=frame.capitalize(), color=frame_colors[frame],
+                      edgecolor='white', width=0.55)
+        for bar, val in zip(bars, vals):
+            if val >= 6:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_y() + bar.get_height() / 2,
+                        f'{val:.0f}%', ha='center', va='center',
+                        fontsize=9, color='white', fontweight='bold')
+        bottom = [b + v for b, v in zip(bottom, vals)]
+
+    for i, (_, row) in enumerate(ct.iterrows()):
+        ax.text(i, 102, f'n={row.sum()}', ha='center', va='bottom', fontsize=9, color='#444444')
+
+    ax.set_xlabel('Structural cluster', fontsize=12, labelpad=8)
+    ax.set_ylabel('Share of articles (%)', fontsize=12, labelpad=8)
+    ax.set_title('Dominant frame distribution by cluster\n(% of articles per cluster)',
+                 fontsize=13, fontweight='bold')
+    ax.set_ylim(0, 112)
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
+    ax.legend(title='Frame', bbox_to_anchor=(1.01, 1), loc='upper left', frameon=False)
+    ax.spines[['top', 'right']].set_visible(False)
+    plt.tight_layout()
+    _save(fig, '12b_frame_by_cluster.png')
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     enriched_path = os.path.join(OUT_DIR, 'enriched.csv')
@@ -446,10 +551,15 @@ if __name__ == '__main__':
 
     print('loading enriched.csv...')
     df = pd.read_csv(enriched_path)
+    # normalise legacy region labels
+    if 'region' in df.columns:
+        df['region'] = df['region'].replace(
+            {'Global North': 'North America', 'Global South': 'South America'}
+        )
     print(f'{len(df)} articles | columns: {list(df.columns)}')
 
     # run clustering if columns not already present
-    if 'global_region' not in df.columns or 'data_cluster_id' not in df.columns:
+    if 'region' not in df.columns or 'data_cluster_id' not in df.columns:
         print('running clustering...')
         from nlp.clustering import run_clustering
         df = run_clustering(df)
@@ -468,6 +578,8 @@ if __name__ == '__main__':
     plot_frame_actionability_by_language(df)
     plot_source_region(df)
     plot_cluster_padm_heatmap(df)
+    plot_actionability_range_bar(df)
+    plot_frame_by_cluster(df)
 
     print(f'\nall outputs saved to: {VIZ_DIR}')
     for f in sorted(os.listdir(VIZ_DIR)):

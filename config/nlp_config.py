@@ -118,7 +118,7 @@ ACTIONABILITY_KEYWORDS = {
 # North America: US and Canada
 # South America: all other Americas countries in the dataset
 # extend this dict when adding new flood events
-GLOBAL_NORTH_COUNTRIES = {
+NORTH_AMERICA_COUNTRIES = {
     'United States of America',
     'United States',
     'USA',

@@ -1,0 +1,3 @@
+region,count,mean,median,std,min,max,pct_of_total
+South America,531,2.153521657250471,0.0,5.775507837591189,0.0,40.0,87.5
+North America,76,0.8182894736842105,0.0,2.856315756661785,0.0,20.0,12.5
