@@ -875,7 +875,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     print(f'[actionability] feature-enriched df shape: {df_by_sentence.shape}')
     print(f'[actionability] feature-enriched df columns: {list(df_by_sentence.columns)}')
 
-    # 10. calculate actionability density: weighted feature sum / sentence word count
+    # 10. calculate actionability density: weighted feature sum 
     word_count = (
         df_by_sentence['sentence'].str.split().str.len()
         .fillna(1).clip(lower=1).astype(float)
@@ -909,11 +909,11 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     d_min = density.min()
     d_max = density.max()
     if d_max > d_min:
-        prob = ((density - d_min) / (d_max - d_min)).round(4)
+        prob = ((density - d_min) / (d_max - d_min))
     else:
         prob = pd.Series(0.0, index=df_by_sentence.index)
 
-    df_by_sentence['actionability_probability'] = prob
+    df_by_sentence['actionability_probability'] = prob.astype(float)
 
     # 11. actionability_score: 0 = (0-0.2], 1 = low (0.2–0.7], 2 = high (>0.7)
     df_by_sentence['actionability_score'] = np.select(
