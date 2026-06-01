@@ -2,32 +2,6 @@
 # orchestrating the full NLP analysis pipeline for americas flood articles
 # run this from the project root:
 #   python run_nlp_pipeline.py [--input path/to/data.csv] [--skip-embed]
-"""
-import sys
-import io
-import logging
-import argparse
-import importlib
-import os
-
-# adding project root to path so config and nlp modules resolve correctly
-sys.path.insert(0, os.path.dirname(__file__))
-
-config = importlib.import_module('config.nlp_config')
-
-_stdout_utf8 = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-
-logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL),
-    format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-    handlers=[
-        logging.StreamHandler(_stdout_utf8),
-        logging.FileHandler(os.path.join(config.LOG_DIR, 'nlp_pipeline.log'), encoding='utf-8'),
-    ],
-    force=True,   # clears handlers added by imported libs (numexpr, sentence_transformers)
-)
-logger = logging.getLogger('pipeline')
-"""
 
 
 import sys

@@ -1,5 +1,5 @@
 cluster,n_articles,mean_imperative_count,mean_short_term_count,mean_long_term_count,mean_spatial_count,mean_advice,mean_srl_complete,actionability_percentage_mean,top_country,top_country_pct,top_language,top_language_pct,top_global_region,top_global_region_pct,top_source_type,top_source_type_pct
-structural_k4_c0,18,0.0797,0.2146,0.4369,0.3563,0.0172,0.8443,6.3322,Brazil,55.6,pt,55.6,Global South,83.3,regional_news,55.6
-structural_k4_c1,124,0.2147,0.3559,0.012,0.6298,0.003,0.82,6.4748,United States of America,26.6,es,42.7,Global South,70.2,unknown,46.8
-structural_k4_c2,36,0.0503,0.0973,0.0086,0.3134,0.2091,0.712,22.1136,Mexico,38.9,es,61.1,Global South,97.2,national_news,41.7
-structural_k4_c3,402,0.036,0.0657,0.0141,0.253,0.0008,0.7357,0.9009,Brazil,46.0,pt,46.0,Global South,78.1,regional_news,40.3
+structural_k4_c0,133,0.0,0.3469,0.0113,0.8212,0.0012,0.8049,3.1878,Brazil,63.2,pt,63.2,Global South,92.5,regional_news,41.4
+structural_k4_c1,18,0.0,0.1928,0.4671,0.3731,0.0158,0.8025,6.2528,Brazil,55.6,pt,55.6,Global South,88.9,regional_news,38.9
+structural_k4_c2,41,0.0,0.3406,0.0041,0.5516,0.1866,0.7433,21.2732,Mexico,46.3,es,61.0,Global South,97.6,national_news,43.9
+structural_k4_c3,415,0.0,0.0758,0.0167,0.2668,0.0008,0.6989,0.5138,Brazil,49.2,pt,49.2,Global South,84.8,unknown,40.7

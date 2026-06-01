@@ -41,8 +41,6 @@ def _get_spacy(lang: str):
 
 ####        2       ####
 
-
-
 def split_into_sentences(text: str) -> list[str]:
     """Split a paragraph into sentences with guardrails.
 
@@ -51,6 +49,10 @@ def split_into_sentences(text: str) -> list[str]:
       (prevents splitting on abbreviations like "U.S." / "p.m." / "S.P.")
     - only allow a split if the next non-space character starts with a capital letter
       (helps avoid mid-sentence splits, but note: this can be too strict for languages like es/pt)
+
+    Extra tweak:
+    - force a sentence break before Spanish inverted question/exclamation if it is glued to previous text
+      like: "... circuito.¿Qué ..." -> "... circuito." + "¿Qué ..."
     """
     if text is None:
         return []
@@ -58,6 +60,13 @@ def split_into_sentences(text: str) -> list[str]:
     text = re.sub(r"\s+", " ", str(text)).strip()
     if not text:
         return []
+
+    # --- NEW: force split when inverted punctuation is glued to previous text ---
+    # Ensures sentencizer sees a boundary opportunity.
+    # Examples fixed:
+    #   "...corto circuito.¿Qué hacer...?" -> "...corto circuito." + "¿Qué hacer...?"
+    #   "...algo!¿Y ahora...?" -> "...algo!" + "¿Y ahora...?"
+    text = re.sub(r"([.!?])(?=(?:¿|¡))", r"\1 ", text)
 
     # Prevent sentencizer from treating a.m./p.m. as sentence-ending punctuation
     _AMPM_TOKEN = "<AMPM>"
@@ -75,23 +84,58 @@ def split_into_sentences(text: str) -> list[str]:
         for s in sents
     ]
 
-    # --- NEW: post-merge "bad boundary" fixer based on original text positions ---
-    # We re-join adjacent sentences if the boundary looks suspicious.
+    # --- NEW: hard split inside any "sentence" if it still contains a glued inverted punct ---
+    # This is a last-resort deterministic split: break at the FIRST occurrence of ¿ or ¡
+    # when it's not at the start of the sentence.
+    forced: list[str] = []
+    for s in sents:
+        ss = s.strip()
+        if not ss:
+            continue
+        # split at the first ¿ or ¡ that appears after some text
+        m = re.search(r".+?(?=(¿|¡))", ss)
+        if m and m.end() > 0 and m.end() < len(ss):
+            left = ss[: m.end()].strip()
+            right = ss[m.end() :].strip()
+            if left:
+                forced.append(left)
+            if right:
+                forced.append(right)
+        else:
+            forced.append(ss)
 
-    def _next_non_space_char(start_idx: int) -> str | None:
+    sents = forced
+
+    # --- post-merge "bad boundary" fixer based on original text positions ---
+    # NOTE: allow sentence to start with ¿/¡ by skipping them to inspect the next real char.
+    _LEADING_QUOTE_CHARS = "\"'“”‘’«»‹›"
+    _LEADING_INVERTED_PUNCT = "¿¡"
+    _LEADING_BRACKETS = "([{"
+
+    def _next_real_char(start_idx: int) -> str | None:
+        """Return next non-space, skipping opening quotes/brackets/inverted punct."""
         if start_idx is None:
             return None
-        m = re.search(r"\S", text[start_idx:])
-        return None if m is None else text[start_idx + m.start()]
+
+        i = start_idx
+
+        while i < len(text) and text[i].isspace():
+            i += 1
+
+        OPENERS = _LEADING_QUOTE_CHARS + _LEADING_BRACKETS + _LEADING_INVERTED_PUNCT
+        while i < len(text) and text[i] in OPENERS:
+            i += 1
+            while i < len(text) and text[i].isspace():
+                i += 1
+
+        return None if i >= len(text) else text[i]
 
     repaired: list[str] = []
-    cursor = 0  # where we are in the original text
+    cursor = 0
 
     for sent in sents:
-        # find this sent in the original text at/after cursor (best effort)
         pos = text.find(sent.replace(" ", " "), cursor)
         if pos == -1:
-            # fallback: just append; cannot reason about boundary
             repaired.append(sent)
             continue
 
@@ -102,14 +146,9 @@ def split_into_sentences(text: str) -> list[str]:
             repaired.append(sent)
             continue
 
-        # boundary checks: should we MERGE previous + this sentence?
-        # 1) if within next 5 chars after previous boundary there's another .!? → likely abbreviation chain
-        prev = repaired[-1]
-        prev_end_in_text = text.find(prev, 0)
-        # we don't have exact prev end reliably; instead use current start as boundary anchor
-        boundary_idx = pos  # start of current sentence
+        boundary_idx = pos
         lookback = max(0, boundary_idx - 10)
-        # locate the punctuation that ended the previous sentence near the boundary
+
         prev_punct_idx = None
         for j in range(boundary_idx - 1, lookback - 1, -1):
             if text[j] in ".!?":
@@ -123,10 +162,9 @@ def split_into_sentences(text: str) -> list[str]:
             if any(ch in ".!?" for ch in window):
                 merge = True
 
-        # 2) only allow split if next non-space char is uppercase (A-Z or accented uppercase)
-        nxt = _next_non_space_char(boundary_idx)
+        nxt = _next_real_char(boundary_idx)
         if nxt is not None:
-            if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ]", nxt):
+            if not re.match(r"[A-ZÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ0-9]", nxt):
                 merge = True
 
         if merge:
@@ -183,6 +221,7 @@ def split_into_sentences(text: str) -> list[str]:
         flags=re.IGNORECASE,
     )
 
+
     out: list[str] = []
     for s in merged:
         ss = s.strip().strip("“”\"'`").strip()
@@ -202,7 +241,41 @@ def split_into_sentences(text: str) -> list[str]:
 
         out.append(ss)
 
-    return out
+  
+    # If any sentence is > 1000 chars, split it into ~300-char chunks (prefer splitting on whitespace).
+    def _chunk_long_sentence(s: str, max_len: int = 1000, chunk_len: int = 300) -> list[str]:
+        s = (s or "").strip()
+        if len(s) <= max_len:
+            return [s] if s else []
+
+        chunks: list[str] = []
+        i = 0
+        n = len(s)
+
+        while i < n:
+            j = min(i + chunk_len, n)
+            # try not to cut in the middle of a word: backtrack to last whitespace
+            if j < n:
+                k = s.rfind(" ", i, j)
+                if k != -1 and k > i + 40:  # avoid tiny fragments
+                    j = k
+
+            piece = s[i:j].strip()
+            if piece:
+                chunks.append(piece)
+
+            # advance; if we split at whitespace, skip it
+            i = j
+            while i < n and s[i].isspace():
+                i += 1
+
+        return chunks
+
+    out_chunked: list[str] = []
+    for s in out:
+        out_chunked.extend(_chunk_long_sentence(s, max_len=1000, chunk_len=300))
+
+    return out_chunked
 
 _WEATHER_TABLEISH_RE = re.compile(
     r"(?is)"
@@ -414,52 +487,58 @@ def actionable_keyword_count(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
 def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     """
     Unified extraction using spaCy for both morphology (verbs) and lemmatization (keywords).
-
     """
-    # 1. Prepare Data
     required = {'language', 'sentence'}
     if not required.issubset(df_by_sentence.columns):
         raise KeyError(f'Missing columns: {required - set(df_by_sentence.columns)}')
 
-    extracted_data = []
+    # Pre-create output frame aligned to df_by_sentence index
+    features_df = pd.DataFrame(index=df_by_sentence.index)
+    features_df['verbs_imperative'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['verbs_subjunctive'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['auxiliary_modals'] = [[] for _ in range(len(df_by_sentence))]
+    features_df['imperative_count'] = 0
+    features_df['short_term_count'] = 0
+    features_df['long_term_count'] = 0
+    features_df['spatial_count'] = 0
 
-    # 2. Process by Language Group
+
     for lang, idx in df_by_sentence.groupby('language', dropna=False).groups.items():
         lang_norm = (lang or 'en').strip().lower() if isinstance(lang, str) else 'en'
         nlp = _get_spacy(lang_norm)
-        
-        # Load Lemmatized Keyword Dictionaries for this language
+
         kw_dict = _get_kw_dict(lang_norm)
-        # Convert lists to sets for O(1) lookup speed
         short_term_lemmas = set(kw_dict.get('short_term', []))
         long_term_lemmas = set(kw_dict.get('long_term', []))
         spatial_lemmas = set(kw_dict.get('spatial_anchors', []))
-        
-        if nlp is None or nlp.vocab.length == 0:
-            extracted_data.extend([{}] * len(idx))
+
+        # If model missing, just leave defaults for these rows
+        if nlp is None or getattr(nlp, "vocab", None) is None or nlp.vocab.length == 0:
             continue
 
-        sentences = df_by_sentence.loc[idx, 'sentence'].fillna('').astype(str).tolist()
-        
-        # 3. Batch Process through spaCy
-        for doc in nlp.pipe(sentences):
+        # IMPORTANT: preserve row-index order for writing back
+        idx_list = list(idx)
+        sentences = df_by_sentence.loc[idx_list, 'sentence'].fillna('').astype(str).tolist()
+
+        for row_i, doc in zip(idx_list, nlp.pipe(sentences)):
             row_features = {
                 'verbs_imperative': [],
                 'verbs_subjunctive': [],
                 'auxiliary_modals': [],
                 'imperative_count': 0,
+                'subjunctive_count': 0,
                 'short_term_count': 0,
                 'long_term_count': 0,
-                'spatial_count': 0
+                'spatial_count': 0,
             }
-            
-            for tok in doc:
-                if tok.is_space or tok.is_punct: 
-                    continue
-                
-                lemma = tok.lemma_.lower()
 
-                # --- A. Evaluate Keywords via Lemmatization ---
+            for tok in doc:
+                if tok.is_space or tok.is_punct:
+                    continue
+
+                lemma = (tok.lemma_ or '').lower()
+
+                # keyword counts (lemmatized)
                 if lemma in spatial_lemmas:
                     row_features['spatial_count'] += 1
                 elif lemma in short_term_lemmas:
@@ -467,33 +546,30 @@ def extract_all_actionable_features(df_by_sentence: pd.DataFrame) -> pd.DataFram
                 elif lemma in long_term_lemmas:
                     row_features['long_term_count'] += 1
 
-                # --- B. Evaluate Morphology for Actionability ---
+                # morphology counts
                 if tok.pos_ == 'VERB':
                     mood = tok.morph.get('Mood')
                     if 'Imp' in mood:
                         row_features['verbs_imperative'].append(tok.lower_)
-                        row_features['imperative_count'] += 1
+
                     elif 'Sub' in mood:
                         row_features['verbs_subjunctive'].append(tok.lower_)
-                        row_features['imperative_count'] += 1 
+  
 
                 elif tok.pos_ == 'AUX':
-                    if lemma in ['dever', 'precisar', 'ter', 'must', 'should', 'need',
-                        'deber', 'necesitar', 'tener', 'haber']:
+                    if lemma in [
+                        'dever', 'precisar', 'ter', 'must', 'should', 'need',
+                        'deber', 'necesitar', 'tener', 'haber'
+                    ]:
                         row_features['auxiliary_modals'].append(lemma)
 
-            extracted_data.append(row_features)
+            # write back aligned by row index
+            for k, v in row_features.items():
+                features_df.at[row_i, k] = v
 
-    # 4. Merge Data
-    features_df = pd.DataFrame(extracted_data, index=df_by_sentence.index)
-    
-    # Clean up NA values
-    for col in features_df.columns:
-        if 'count' in col:
-            features_df[col] = features_df[col].fillna(0).astype(int)
-        else:
-            features_df[col] = features_df[col].apply(lambda x: x if isinstance(x, list) else [])
-        
+    for c in ['verbs_imperative', 'verbs_subjunctive', 'auxiliary_modals']:
+        features_df[c] = features_df[c].apply(lambda x: x if isinstance(x, list) else [])
+
     return pd.concat([df_by_sentence, features_df], axis=1)
 
 #########################################################################################################################
@@ -691,7 +767,7 @@ def add_advice_flag(df_by_sentence: pd.DataFrame) -> pd.DataFrame:
     advice_regex = {
         'en': re.compile(r"\b(?:recommend|recommends|recommended|recommending|suggest|suggests|suggested|suggesting|advises|advise|advised|advising|urge|urges|urged|urging)\b", re.IGNORECASE),
         'es': re.compile(r"\b(?:recomend\w*|aconsej\w*|suger\w*)\b", re.IGNORECASE),
-        'pt': re.compile(r"\b(?:recomend\w*|aconselh\w*|suger\w*)\b", re.IGNORECASE),
+        'pt': re.compile(r"\b(?:recomend\w*|aconselh\w*|suger\w*|urgen)\b", re.IGNORECASE),
     }
 
     for lang, idx in df.groupby('language', dropna=False).groups.items():
@@ -799,7 +875,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
     print(f'[actionability] feature-enriched df shape: {df_by_sentence.shape}')
     print(f'[actionability] feature-enriched df columns: {list(df_by_sentence.columns)}')
 
-    # 10. calculate actionability density: weighted feature sum / sentence word count
+    # 10. calculate actionability density: weighted feature sum 
     word_count = (
         df_by_sentence['sentence'].str.split().str.len()
         .fillna(1).clip(lower=1).astype(float)
@@ -817,7 +893,7 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
             )
         return pd.Series(0.0, index=df_by_sentence.index)
 
-    density = (
+    density_raw = (
           3.0 * _col('imperative_count')
         + 1.5 * _col('short_term_count')
         + 1.5 * _col('long_term_count')
@@ -828,16 +904,18 @@ def run_actionability(df: pd.DataFrame) -> pd.DataFrame:
         + 1.0 * _col('srl_complete')
         + 20.0 * _col('advice')
     ) 
+   
+    density = density_raw 
 
     # 10. standardize density → actionability_probability in [0, 1] via min-max
     d_min = density.min()
     d_max = density.max()
     if d_max > d_min:
-        prob = ((density - d_min) / (d_max - d_min)).round(4)
+        prob = ((density - d_min) / (d_max - d_min))
     else:
         prob = pd.Series(0.0, index=df_by_sentence.index)
 
-    df_by_sentence['actionability_probability'] = prob
+    df_by_sentence['actionability_probability'] = prob.astype(float)
 
     # 11. actionability_score: 0 = (0-0.2], 1 = low (0.2–0.7], 2 = high (>0.7)
     df_by_sentence['actionability_score'] = np.select(
