@@ -6,6 +6,8 @@ Output: output/pipeline_diagram.png
 import os
 import graphviz
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 os.environ['PATH'] += r';C:\Program Files (x86)\Graphviz\bin'
 
 dot = graphviz.Digraph(
@@ -211,6 +213,6 @@ for a, b in [('input','step1'), ('step1','step2'), ('step2','step3'),
     dot.edge(a, b)
 
 # ── render ────────────────────────────────────────────────────────────────────
-os.makedirs('output', exist_ok=True)
-out = dot.render(filename='output/pipeline_diagram', cleanup=True)
+os.makedirs(os.path.join(ROOT, 'output'), exist_ok=True)
+out = dot.render(filename=os.path.join(ROOT, 'output', 'pipeline_diagram'), cleanup=True)
 print(f'saved: {out}')

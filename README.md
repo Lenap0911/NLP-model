@@ -1,8 +1,8 @@
 # Americas Flood NLP Pipeline
 
-NLP analysis of flood-related news articles from the Americas (EN, ES, PT), extracted from Common Crawl. The core research goal is to measure **actionability** of flood coverage across regions (North America vs South America) and identify where CC systematically under-represents certain source types.
+NLP analysis of flood-related news articles from the Americas (EN, ES, PT), extracted from Common Crawl. The core research goal is to measure **actionability** of flood coverage — the degree to which articles contain protective action guidance — across languages, regions, and source types, using the Protective Action Decision Model (PADM) as a theoretical framework.
 
-**Current dataset:** `verified_articles_clean.csv` — 612 rows, 580 after filtering, covering multiple flood events across the Americas (EN, ES, PT).  
+**Current dataset:** `verified_articles_clean.csv` — 612 rows, 607 after filtering, covering 44 flood events across 17 countries (EN, ES, PT).  
 **Flood event metadata:** `verified_floods_with_articles.csv` — flood event reference table.
 
 ---
@@ -21,15 +21,14 @@ python -m spacy download pt_core_news_sm
 ## Running
 
 ```bash
-# full pipeline
+# full pipeline — produces enriched.csv and all stats
 python run_nlp_pipeline.py
 
 # with a custom input CSV
 python run_nlp_pipeline.py --input /path/to/your_data.csv
-
-# visualizations (run after pipeline)
-python generate_visualizations.py
 ```
+
+Visualisations, tables, and the pipeline diagram are generated from `notebook_tests/` (see below).
 
 ---
 
@@ -38,31 +37,84 @@ python generate_visualizations.py
 ```
 Model/
 ├── config/
-│   ├── nlp_config.py             ← all constants and paths — edit this first
-│   └── flood_keywords.json       ← bilingual keyword lexicon (unused by default)
-├── nlp/
-│   ├── preprocessing.py          ← language mapping, text cleaning, deduplication
-│   ├── actionability.py          ← sentence-level actionability scoring
-│   ├── authority.py              ← source authority classification by domain
-│   ├── framing.py                ← rule-based frame classification
-│   └── clustering.py             ← group distributions + HDBSCAN clustering
+│   ├── nlp_config.py              ← all constants, paths, and keyword lists — edit this first
+│   ├── keywords.ipynb             ← exploratory keyword frequency analysis (development only)
+│   └── en_search_keywords.txt     ← raw English keyword list used in keywords.ipynb
+│
+├── nlp/                           ← pipeline modules (one per stage)
+│   ├── preprocessing.py           ← language mapping, text cleaning, deduplication
+│   ├── actionability.py           ← sentence-level actionability scoring (keywords + spaCy + SRL)
+│   ├── authority.py               ← source authority classification by domain lookup
+│   ├── framing.py                 ← rule-based frame classification (impact/response/accountability/recovery)
+│   └── clustering.py              ← predefined group distributions + K-Means clustering (k=3)
+│
 ├── data/
-│   ├── verified_articles_clean.csv        ← current pipeline input (612 articles)
-│   └── verified_floods_with_articles.csv  ← flood event metadata
-├── output/                       ← pipeline outputs (gitignored)
-│   ├── enriched.csv                       ← main output: one row per article
-│   ├── sentences_actionability.csv        ← sentence-level detail
-│   ├── group_stats_global_region.csv
-│   ├── group_stats_country.csv
-│   ├── group_stats_domain.csv
-│   ├── group_stats_language.csv
-│   ├── cluster_summary.csv
-│   └── visualizations/                    ← PNG plots from generate_visualizations.py
-├── logs/                         ← run logs (gitignored)
-├── run_nlp_pipeline.py           ← main entry point
-├── generate_visualizations.py    ← standalone visualization script
+│   ├── verified_articles_clean.csv        ← pipeline input (612 articles, 607 post-filter)
+│   └── verified_floods_with_articles.csv  ← flood event metadata (44 events, used for joining)
+│
+├── output/                        ← all pipeline outputs
+│   ├── enriched.csv               ← main output: one row per article, all pipeline columns added
+│   ├── sentences_actionability.csv ← sentence-level detail: one row per sentence with raw scores
+│   ├── interpretations_report.md  ← analytical interpretations of all key figures and findings
+│   ├── stats/                     ← aggregate statistical summaries
+│   │   ├── group_stats_country.csv
+│   │   ├── group_stats_domain.csv
+│   │   ├── group_stats_language.csv
+│   │   ├── group_stats_region.csv
+│   │   ├── group_stats_global_region.csv
+│   │   ├── cluster_silhouette_scores.csv
+│   │   ├── cluster_summary_structural_k3.csv  ← k=3 final (structural features only)
+│   │   ├── cluster_summary_full_k3.csv        ← k=3 final (with actionability)
+│   │   ├── cluster_summary_structural_k4.csv  ← k=4 exploratory
+│   │   ├── cluster_summary_full_k4.csv
+│   │   ├── cluster_summary_structural_k5.csv  ← k=5 exploratory
+│   │   └── cluster_summary_full_k5.csv
+│   ├── visualizations/            ← PNG plots from generate_visualizations.py
+│   │   ├── general_graphs/        ← language, region, source type, frame distributions
+│   │   └── clustering_graphs/     ← PADM feature heatmaps, cluster profiles
+│   └── tables/                    ← appendix tables A1–A6
+│       ├── table_A1_corpus.png
+│       ├── table_A2_actionability.png
+│       ├── table_A3_padm_components.png
+│       ├── table_A4_source_region.png
+│       ├── table_A5_framing.png
+│       ├── table_A6_clustering.png
+│       └── appendix_tables.docx   ← editable Word version of A1–A6
+│
+├── notebook_tests/                ← output generators and development notebooks (see below)
+│   ├── generate_visualizations.py ← produces all PNGs in output/visualizations/
+│   ├── generate_tables.py         ← produces appendix table PNGs in output/tables/
+│   ├── generate_tables_docx.py    ← produces appendix_tables.docx in output/tables/
+│   ├── generate_pipeline_diagram.py ← renders pipeline flowchart (Graphviz)
+│   ├── statistical_significance.ipynb ← statistical tests (Chi-square, Mann-Whitney, Kruskal-Wallis)
+│   ├── actionability_tester.ipynb ← development: testing actionability scoring in isolation
+│   └── function_tester.ipynb      ← development: testing individual NLP functions
+│
+├── logs/                          ← run logs (gitignored)
+├── run_nlp_pipeline.py            ← main entry point
 └── requirements.txt
 ```
+
+---
+
+## notebook_tests/
+
+This folder contains two types of files:
+
+**Output generators** — standalone scripts that read from `output/` and produce figures, tables, and diagrams. These are separate from the main pipeline and are run manually after `run_nlp_pipeline.py` completes:
+
+```bash
+python notebook_tests/generate_visualizations.py   # all PNG plots → output/visualizations/
+python notebook_tests/generate_tables.py           # appendix table PNGs → output/tables/
+python notebook_tests/generate_tables_docx.py      # editable Word tables → output/tables/
+python notebook_tests/generate_pipeline_diagram.py # pipeline diagram → output/
+```
+
+**Development notebooks** — Jupyter notebooks used during development to test and validate individual pipeline components. They are not part of the production pipeline but are included for transparency:
+
+- `statistical_significance.ipynb` — runs and records all statistical significance tests cited in the report (Chi-square, Mann-Whitney U, Kruskal-Wallis H)
+- `actionability_tester.ipynb` — isolated testing of the actionability scoring functions
+- `function_tester.ipynb` — isolated testing of individual NLP utility functions
 
 ---
 
@@ -74,7 +126,6 @@ Model/
 | `flood_id` | int | flood event id |
 | `iso` | str | country ISO code e.g. `BRA` |
 | `country` | str | full country name |
-| `americas_region` | str | e.g. `South America` |
 | `location` | str | subnational location |
 | `river_basin` | str | river basin name |
 | `start_date` | date | flood event start date |
@@ -87,45 +138,46 @@ Model/
 
 ---
 
-## Pipeline steps
+## Pipeline stages
 
-| step | module | output columns added |
-|------|--------|----------------------|
+| stage | module | columns added |
+|-------|--------|---------------|
 | 1 | `preprocessing.py` | `language` |
-| 2 | `actionability.py` | `total_sentences`, `actionability_percentage` |
+| 2 | `actionability.py` | `total_sentences`, `actionability_percentage`, sentence-level features |
 | 3 | `authority.py` | `domain`, `scope`, `source_type` |
 | 4 | `framing.py` | `dominant_frame` |
-| 5 | `clustering.py` | `global_region`, `data_cluster_id` |
-| 6 | save | `output/enriched.csv` (580 rows × 21 columns) |
+| 5 | `clustering.py` | `region`, `data_cluster_id` |
+| 6 | save | `output/enriched.csv` (607 rows × 21 columns) |
 
-Sentence-level detail is saved separately to `output/sentences_actionability.csv`.
+Sentence-level detail is written separately to `output/sentences_actionability.csv`.
 
 ---
 
 ## Actionability scoring
 
-Scoring operates at the **sentence level** and aggregates back to article level.
+Scoring operates at the **sentence level** and aggregates to article level.
 
 Each sentence is scored using:
-- Keyword matching (imperative verbs, short-term urgency, long-term recovery, spatial anchors)
-- spaCy morphology (imperative/subjunctive verb forms, auxiliary modals)
-- SRL-lite (agent, action, location presence)
-- Advice detection (`recommend`, `suggest`, `urge` and equivalents in ES/PT)
+- Keyword matching — imperative verbs, urgency signals, spatial anchors, recovery terms (language-specific lists for EN/ES/PT in `config/nlp_config.py`)
+- spaCy morphology — imperative/subjunctive verb forms, modal auxiliaries
+- SRL-lite — presence of agent, action, and location in the same sentence
+- Advice detection — institutional recommendation verbs (*recommend*, *suggest*, *urge* and ES/PT equivalents)
 
-A weighted density score is normalised to `actionability_probability` (0–1), then binned into `actionability_score` (0/1/2). The article-level `actionability_percentage` is a weighted average across all sentences.
+The article-level `actionability_percentage` is the weighted proportion of sentences containing actionable content.
 
 ---
 
-## Clustering design
+## Clustering
 
-**Stage 1 — Predefined group distributions**  
-Computes `actionability_percentage` distributions by global region, country, domain, and language. Saved as `group_stats_*.csv`.
+K-Means (k=3) on five normalised structural features (imperative count, urgency, spatial anchors, advice-framing, SRL completeness). Actionability percentage is **excluded from clustering input** and observed post-hoc.
 
-North America = US + Canada. All other Americas countries = South America.  
-To change this, edit `NORTH_AMERICA_COUNTRIES` in `config/nlp_config.py`.
+**k=3 selected** by silhouette score (0.499 vs k=4: 0.286, k=5: 0.208). Cluster summaries for k=4 and k=5 are retained in `output/stats/` for reference.
 
-**Stage 2 — Data-driven HDBSCAN**  
-Clusters articles on normalised actionability feature vectors. Output column: `data_cluster_id` (−1 = noise). Summary saved to `cluster_summary.csv`.
+| cluster | label | n | mean actionability |
+|---------|-------|---|--------------------|
+| 0 | Descriptive Baseline | 549 (90%) | 0.7% |
+| 1 | Actionable Advisory | 39 (6%) | 18.0% |
+| 2 | Recovery Discourse | 19 (3%) | 5.3% |
 
 ---
 
@@ -154,8 +206,8 @@ Edit only `config/nlp_config.py`:
 
 | module | key papers |
 |--------|-----------|
-| `preprocessing.py` | Blomeier et al. 2024 |
+| `preprocessing.py` | Blomeier et al. 2025 |
 | `actionability.py` | Mostafiz et al. 2022; Zade et al. 2018; Jurafsky 2014; Zguir et al. 2025 |
-| `authority.py` | Gordon 2000; Khawaja et al. 2025 |
-| `framing.py` | Entman 1993; Zade et al. 2018; Khawaja et al. 2025 |
-| `clustering.py` | Sit et al. 2020 (HDBSCAN) |
+| `authority.py` | Semetko & Valkenburg 2000; Barocas et al. 2023 |
+| `framing.py` | Entman 1993; Klein 2024; Blomeier et al. 2025 |
+| `clustering.py` | Sit et al. 2020; Lindell & Perry 2012 |

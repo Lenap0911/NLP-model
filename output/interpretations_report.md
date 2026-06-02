@@ -94,6 +94,57 @@ The heatmap shows the three K-Means clusters (structural features, k=3, silhouet
 
 ---
 
+## Figure 6 — Actionability by Country
+
+| Country | Articles | Mean actionability | Max |
+|---------|----------|--------------------|-----|
+| Mexico | 105 | 4.19% | 40.0% |
+| Peru | 30 | 3.80% | 25.0% |
+| Costa Rica | 3 | 3.70% | 11.1% |
+| Colombia | 31 | 2.15% | 20.0% |
+| Bolivia | 3 | 2.08% | 6.25% |
+| Brazil | 313 | 1.59% | 37.5% |
+| Canada | 12 | 1.47% | 9.09% |
+| United States | 64 | 0.70% | 20.0% |
+| Ecuador | 5 | 0.00% | — |
+| Uruguay | 22 | 0.00% | — |
+| Guyana | 6 | 0.00% | — |
+
+Mexico is the most actionable country in the corpus, driven by national news outlets that use explicit advice-framing language. Brazil, despite contributing 51.6% of all articles, scores below the corpus mean — confirming that Common Crawl's over-indexing on Brazilian regional outlets inflates corpus volume without proportionate actionability. Several countries (Ecuador, Uruguay, Guyana, Panama, Venezuela) score 0% across all articles.
+
+---
+
+## Figure 7 — Actionability by Domain (top 10 by mean, min. 5 articles)
+
+| Domain | Articles | Mean actionability |
+|--------|----------|--------------------|
+| tabascohoy.com | 8 | 8.07% |
+| expreso.com.pe | 18 | 4.61% |
+| elfinanciero.com.mx | 60 | 4.53% |
+| eje21.com.co | 10 | 4.43% |
+| elpueblo.com.pe | 8 | 3.87% |
+| bhaz.com.br | 8 | 3.72% |
+| em.com.br | 22 | 3.68% |
+| folhavitoria.com.br | 6 | 3.57% |
+| ibahia.com | 10 | 2.70% |
+| campograndenews.com.br | 7 | 2.68% |
+
+The highest-scoring domains are Mexican and Peruvian national and regional outlets. `elfinanciero.com.mx` (60 articles, 10th largest domain) scores 4.53%, confirming that Mexican national journalism consistently embeds advisory language. The presence of several Brazilian domains in the top 10 reflects that even within the low-actionability Brazilian corpus, a subset of outlets produce above-average advisory content.
+
+---
+
+## Key Cross-Cutting Findings
+
+1. **Actionability is structurally rare.** The median actionability score is 0% for every language, region, and country grouping. Across 607 articles, fewer than 6% contain meaningful advisory content (Cluster 1, k=3).
+
+2. **Source type predicts actionability more than language or region.** National news outlets — particularly Mexican and Colombian — consistently score higher. Regional outlets, which dominate the corpus by volume, consistently score near zero. Cluster membership (η²=0.453) explains variance in actionability far better than frame (η²=0.025) or region alone.
+
+3. **Common Crawl's coverage pattern shapes the findings.** Brazil accounts for 51.6% of the corpus (313 articles). This concentration amplifies low-actionability Portuguese content and suppresses the corpus-wide mean.
+
+4. **Advisory content is structurally distinct.** The actionable cluster (Cluster 1, k=3) is defined by advice-framing verbs rather than imperative structures — institutional recommendation language, not direct public commands. This cluster represents just 6% of the corpus and is concentrated in Spanish national news.
+
+---
+
 *Figures generated from: enriched.csv, cluster_summary_structural_k3.csv*  
 *Pipeline: nlp/actionability.py, nlp/clustering.py, generate_visualizations.py*  
 *Figures: 00, 09, 10, 10_en, 10_es, 10_pt, 11, 12*

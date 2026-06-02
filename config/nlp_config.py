@@ -133,8 +133,8 @@ KMEANS_K_VALUES     = [3, 4, 5]   # k values to try
 KMEANS_N_INIT       = 20          # random initialisations per k
 KMEANS_RANDOM_STATE = 42
 
-# output paths for per-group summary tables (written alongside enriched CSV)
-CLUSTER_STATS_DIR = OUTPUT_DIR   # group summary CSVs go into output/
+# output paths for per-group summary tables
+CLUSTER_STATS_DIR = os.path.join(OUTPUT_DIR, 'stats')  # group summary CSVs go into output/stats/
 
 # ── topic modelling (secondary / optional) ────────────────────────────────────
 # BERTopic approach: Dujardin et al. (2024) temporal-spatial topic design

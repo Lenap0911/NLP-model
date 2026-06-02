@@ -9,3 +9,4 @@ hdbscan
 spacy
 deep-translator
 lingua-language-detector
+python-docx

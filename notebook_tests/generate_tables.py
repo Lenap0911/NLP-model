@@ -8,7 +8,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-OUT_DIR = os.path.join(os.path.dirname(__file__), 'output', 'tables')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(ROOT, 'output', 'tables')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 HDR_BG = '#1F3A5F'

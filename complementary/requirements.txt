@@ -1,5 +1,0 @@
-newspaper3k
-feedparser
-requests
-lingua-language-detector
-pandas
