@@ -202,6 +202,18 @@ Edit only `config/nlp_config.py`:
 
 ---
 
+## AI use disclosure
+
+AI assistants (Claude, Gemini) were used during the development of this project in the following ways:
+
+- **Code development and debugging** — assisted in writing, structuring, and iterating on pipeline modules, resolving errors, and refining implementation logic. All design decisions, analytical choices, and module architectures are the authors' own.
+- **Editorial and linguistic feedback** — used to provide structural recommendations for condensing written sections while preserving core arguments and the authors' voice. The output of these prompts was used as a starting point for manual editing; all final wording, arguments, analysis, and conclusions are entirely the authors' own.
+- **Clarification of concepts** — occasionally consulted to clarify technical terminology or confirm interpretations, in the same way one might use a reference tool.
+
+AI-generated suggestions were not adopted verbatim. All core arguments, references, analytical interpretations, and conclusions in the accompanying report are the authors' original work.
+
+---
+
 ## Literature grounding
 
 | module | key papers |
